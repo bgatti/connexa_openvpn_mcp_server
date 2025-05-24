@@ -1,0 +1,2774 @@
+{
+  "UserUpdateRequest": {
+    "type": "object",
+    "properties": {
+      "firstName": {
+        "type": "string"
+      },
+      "lastName": {
+        "type": "string"
+      },
+      "email": {
+        "type": "string"
+      },
+      "groupId": {
+        "type": "string",
+        "example": "00000000-0000-0000-0000-000000000000"
+      },
+      "status": {
+        "type": "string",
+        "enum": [
+          "INVITED",
+          "ACTIVE",
+          "SUSPENDED",
+          "SUSPENDED_IDP"
+        ]
+      },
+      "role": {
+        "type": "string",
+        "enum": [
+          "OWNER",
+          "MEMBER",
+          "ADMIN"
+        ]
+      }
+    }
+  },
+  "DeviceResponse": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "example": "00000000-0000-0000-0000-000000000000"
+      },
+      "userId": {
+        "type": "string",
+        "example": "00000000-0000-0000-0000-000000000000"
+      },
+      "clientUUID": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "ipV4Address": {
+        "type": "string"
+      },
+      "ipV6Address": {
+        "type": "string"
+      },
+      "platform": {
+        "$ref": "#/components/schemas/PlatformResponse"
+      },
+      "connectionStatus": {
+        "type": "string",
+        "enum": [
+          "ONLINE",
+          "OFFLINE",
+          "ONLINE_WITH_ISSUES"
+        ]
+      }
+    }
+  },
+  "PlatformResponse": {
+    "type": "object",
+    "properties": {
+      "os": {
+        "type": "string"
+      },
+      "version": {
+        "type": "string"
+      }
+    }
+  },
+  "UserResponse": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "example": "00000000-0000-0000-0000-000000000000"
+      },
+      "firstName": {
+        "type": "string"
+      },
+      "lastName": {
+        "type": "string"
+      },
+      "username": {
+        "type": "string"
+      },
+      "email": {
+        "type": "string"
+      },
+      "groupId": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string",
+        "enum": [
+          "INVITED",
+          "ACTIVE",
+          "SUSPENDED",
+          "SUSPENDED_IDP"
+        ]
+      },
+      "authType": {
+        "type": "string",
+        "enum": [
+          "INTERNAL",
+          "SAML",
+          "LDAP",
+          "GOOGLE",
+          "MICROSOFT"
+        ]
+      },
+      "role": {
+        "type": "string",
+        "enum": [
+          "OWNER",
+          "MEMBER",
+          "ADMIN"
+        ]
+      },
+      "devices": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/DeviceResponse"
+        }
+      },
+      "connectionStatus": {
+        "type": "string",
+        "enum": [
+          "ONLINE",
+          "OFFLINE",
+          "ONLINE_WITH_ISSUES"
+        ]
+      }
+    }
+  },
+  "UserGroupRequest": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "vpnRegionIds": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "internetAccess": {
+        "type": "string",
+        "enum": [
+          "SPLIT_TUNNEL_ON",
+          "SPLIT_TUNNEL_OFF",
+          "RESTRICTED_INTERNET"
+        ]
+      },
+      "maxDevice": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "connectAuth": {
+        "type": "string",
+        "enum": [
+          "NO_AUTH",
+          "ON_PRIOR_AUTH",
+          "EVERY_TIME"
+        ]
+      },
+      "allRegionsIncluded": {
+        "type": "boolean"
+      },
+      "gatewaysIds": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "UserGroupResponse": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "example": "00000000-0000-0000-0000-000000000000"
+      },
+      "name": {
+        "type": "string"
+      },
+      "vpnRegionIds": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "allRegionsIncluded": {
+        "type": "boolean"
+      },
+      "internetAccess": {
+        "type": "string",
+        "enum": [
+          "SPLIT_TUNNEL_ON",
+          "SPLIT_TUNNEL_OFF",
+          "RESTRICTED_INTERNET"
+        ]
+      },
+      "maxDevice": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "connectAuth": {
+        "type": "string",
+        "enum": [
+          "NO_AUTH",
+          "ON_PRIOR_AUTH",
+          "EVERY_TIME"
+        ]
+      },
+      "systemSubnets": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "gatewaysIds": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "Subnet": {
+    "type": "object",
+    "properties": {
+      "ipV4Address": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "ipV6Address": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "DomainRoutingSubnet": {
+    "type": "object",
+    "properties": {
+      "ipV4Address": {
+        "type": "string"
+      },
+      "ipV6Address": {
+        "type": "string"
+      }
+    }
+  },
+  "DnsZone": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "addresses": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "DnsZones": {
+    "type": "object",
+    "properties": {
+      "zones": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/DnsZone"
+        }
+      }
+    }
+  },
+  "DnsServerAddresses": {
+    "type": "object",
+    "properties": {
+      "primaryIpV4": {
+        "type": "string"
+      },
+      "secondaryIpV4": {
+        "type": "string"
+      }
+    }
+  },
+  "NetworkUpdateRequest": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "egress": {
+        "type": "boolean"
+      },
+      "internetAccess": {
+        "type": "string",
+        "enum": [
+          "SPLIT_TUNNEL_ON",
+          "SPLIT_TUNNEL_OFF",
+          "RESTRICTED_INTERNET"
+        ]
+      },
+      "gatewaysIds": {
+        "type": "array",
+        "example": [
+          "00000000-0000-0000-0000-000000000000"
+        ],
+        "items": {
+          "type": "string",
+          "example": "[\"00000000-0000-0000-0000-000000000000\"]"
+        }
+      },
+      "tunnelingProtocol": {
+        "type": "string",
+        "enum": [
+          "OPENVPN",
+          "IPSEC"
+        ]
+      }
+    }
+  },
+  "IkeDeadPeerDetection": {
+    "type": "object",
+    "properties": {
+      "timeoutSec": {
+        "type": "integer",
+        "format": "int32",
+        "example": 30
+      },
+      "deadPeerHandling": {
+        "type": "string",
+        "enum": [
+          "RESTART",
+          "NONE"
+        ]
+      }
+    }
+  },
+  "IkePhase": {
+    "type": "object",
+    "properties": {
+      "encryptionAlgorithms": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "AES128",
+            "AES256",
+            "AES128_GCM_16",
+            "AES256_GCM_16"
+          ]
+        }
+      },
+      "integrityAlgorithms": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "SHA1",
+            "SHA2_256",
+            "SHA2_384",
+            "SHA2_512"
+          ]
+        }
+      },
+      "diffieHellmanGroups": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "G_1",
+            "G_2",
+            "G_5",
+            "G_14",
+            "G_15",
+            "G_16",
+            "G_19",
+            "G_20",
+            "G_24"
+          ]
+        }
+      },
+      "lifetimeSec": {
+        "type": "integer",
+        "format": "int32",
+        "example": 3600
+      }
+    }
+  },
+  "IkeProtocol": {
+    "type": "object",
+    "properties": {
+      "protocolVersion": {
+        "type": "string",
+        "enum": [
+          "IKE_V1",
+          "IKE_V2"
+        ]
+      },
+      "phase1": {
+        "$ref": "#/components/schemas/IkePhase"
+      },
+      "phase2": {
+        "$ref": "#/components/schemas/IkePhase"
+      },
+      "rekey": {
+        "$ref": "#/components/schemas/IkeRekey"
+      },
+      "deadPeerDetection": {
+        "$ref": "#/components/schemas/IkeDeadPeerDetection"
+      },
+      "startupAction": {
+        "type": "string",
+        "enum": [
+          "START",
+          "ATTACH"
+        ]
+      }
+    }
+  },
+  "IkeRekey": {
+    "type": "object",
+    "properties": {
+      "marginTimeSec": {
+        "type": "integer",
+        "format": "int32",
+        "example": 270
+      },
+      "fuzzPercent": {
+        "type": "integer",
+        "format": "int32",
+        "example": 100
+      },
+      "replayWindowSize": {
+        "type": "integer",
+        "format": "int32",
+        "example": 1024
+      }
+    }
+  },
+  "IpSecConfigResponse": {
+    "type": "object",
+    "properties": {
+      "platform": {
+        "type": "string",
+        "enum": [
+          "AWS",
+          "CISCO",
+          "AZURE",
+          "GCP",
+          "OTHER"
+        ]
+      },
+      "connectorState": {
+        "type": "string",
+        "enum": [
+          "ACTIVE",
+          "SUSPENDED"
+        ]
+      },
+      "authenticationType": {
+        "type": "string",
+        "enum": [
+          "SHARED_SECRET",
+          "CERTIFICATE"
+        ]
+      },
+      "remoteSitePublicIp": {
+        "type": "string"
+      },
+      "preSharedKey": {
+        "type": "string"
+      },
+      "caCertificate": {
+        "type": "string"
+      },
+      "caCertificateFileName": {
+        "type": "string"
+      },
+      "peerCertificate": {
+        "type": "string"
+      },
+      "remoteGatewayCertificate": {
+        "type": "string"
+      },
+      "peerCertificatePrivateKey": {
+        "type": "string"
+      },
+      "peerCertificateKeyPassphrase": {
+        "type": "string"
+      },
+      "pairedAwsConnectorId": {
+        "type": "string"
+      },
+      "ikeProtocol": {
+        "$ref": "#/components/schemas/IkeProtocol"
+      },
+      "serverId": {
+        "type": "string"
+      },
+      "hostname": {
+        "type": "string"
+      },
+      "domain": {
+        "type": "string"
+      }
+    }
+  },
+  "NetworkConnectorResponse": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "example": "00000000-0000-0000-0000-000000000000"
+      },
+      "networkItemId": {
+        "type": "string",
+        "example": "00000000-0000-0000-0000-000000000000"
+      },
+      "networkItemType": {
+        "type": "string",
+        "enum": [
+          "NETWORK",
+          "HOST"
+        ]
+      },
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "vpnRegionId": {
+        "type": "string"
+      },
+      "ipV4Address": {
+        "type": "string"
+      },
+      "ipV6Address": {
+        "type": "string"
+      },
+      "tunnelingProtocol": {
+        "type": "string",
+        "enum": [
+          "OPENVPN",
+          "IPSEC"
+        ]
+      },
+      "ipSecConfig": {
+        "$ref": "#/components/schemas/IpSecConfigResponse"
+      },
+      "connectionStatus": {
+        "type": "string",
+        "enum": [
+          "ONLINE",
+          "OFFLINE",
+          "ONLINE_WITH_ISSUES"
+        ]
+      }
+    }
+  },
+  "NetworkResponse": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "example": "00000000-0000-0000-0000-000000000000"
+      },
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "egress": {
+        "type": "boolean"
+      },
+      "internetAccess": {
+        "type": "string",
+        "enum": [
+          "SPLIT_TUNNEL_ON",
+          "SPLIT_TUNNEL_OFF",
+          "RESTRICTED_INTERNET"
+        ]
+      },
+      "routes": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/NetworkRouteResponse"
+        }
+      },
+      "connectors": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/NetworkConnectorResponse"
+        }
+      },
+      "systemSubnets": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "tunnelingProtocol": {
+        "type": "string",
+        "enum": [
+          "OPENVPN",
+          "IPSEC"
+        ]
+      },
+      "gatewaysIds": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "NetworkRouteResponse": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "example": "00000000-0000-0000-0000-000000000000"
+      },
+      "type": {
+        "type": "string",
+        "enum": [
+          "IP_V4",
+          "IP_V6"
+        ]
+      },
+      "subnet": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      }
+    }
+  },
+  "NetworkRouteRequest": {
+    "type": "object",
+    "properties": {
+      "value": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      }
+    }
+  },
+  "CustomServiceTypeRequest": {
+    "type": "object",
+    "properties": {
+      "protocol": {
+        "type": "string",
+        "enum": [
+          "TCP",
+          "UDP",
+          "ICMP"
+        ]
+      },
+      "port": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/RangeInteger"
+        }
+      },
+      "icmpType": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/RangeInteger"
+        }
+      }
+    }
+  },
+  "NetworkIpServiceRequest": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "routes": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/ServiceRouteRequest"
+        }
+      },
+      "config": {
+        "$ref": "#/components/schemas/ServiceConfigRequest"
+      },
+      "type": {
+        "type": "string",
+        "enum": [
+          "IP_SOURCE",
+          "SERVICE_DESTINATION"
+        ]
+      }
+    }
+  },
+  "RangeInteger": {
+    "type": "object",
+    "properties": {
+      "value": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "lowerValue": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "upperValue": {
+        "type": "integer",
+        "format": "int32"
+      }
+    }
+  },
+  "ServiceConfigRequest": {
+    "type": "object",
+    "properties": {
+      "serviceTypes": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "ANY",
+            "CUSTOM",
+            "BGP",
+            "DHCP",
+            "DNS",
+            "FTP",
+            "HTTP",
+            "HTTPS",
+            "IMAP",
+            "IMAPS",
+            "NTP",
+            "POP3",
+            "POP3S",
+            "SMTP",
+            "SMTPS",
+            "SNMP",
+            "SSH",
+            "TELNET",
+            "TFTP"
+          ]
+        }
+      },
+      "customServiceTypes": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/CustomServiceTypeRequest"
+        }
+      }
+    }
+  },
+  "ServiceRouteRequest": {
+    "type": "object",
+    "properties": {
+      "value": {
+        "type": "string"
+      }
+    }
+  },
+  "CustomServiceTypeResponse": {
+    "type": "object",
+    "properties": {
+      "protocol": {
+        "type": "string",
+        "enum": [
+          "TCP",
+          "UDP",
+          "ICMP"
+        ]
+      },
+      "port": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/RangeInteger"
+        }
+      },
+      "icmpType": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/RangeInteger"
+        }
+      }
+    }
+  },
+  "IpRouteResponse": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "example": "00000000-0000-0000-0000-000000000000"
+      },
+      "parentRouteId": {
+        "type": "string",
+        "example": "00000000-0000-0000-0000-000000000000"
+      },
+      "type": {
+        "type": "string",
+        "enum": [
+          "IP_V4",
+          "IP_V6"
+        ]
+      },
+      "subnet": {
+        "type": "string"
+      }
+    }
+  },
+  "NetworkIpServiceResponse": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "example": "00000000-0000-0000-0000-000000000000"
+      },
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "networkItemId": {
+        "type": "string"
+      },
+      "type": {
+        "type": "string",
+        "enum": [
+          "IP_SOURCE",
+          "SERVICE_DESTINATION"
+        ]
+      },
+      "networkItemType": {
+        "type": "string",
+        "enum": [
+          "NETWORK",
+          "HOST"
+        ]
+      },
+      "routes": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/IpRouteResponse"
+        }
+      },
+      "config": {
+        "$ref": "#/components/schemas/ServiceConfigResponse"
+      }
+    }
+  },
+  "ServiceConfigResponse": {
+    "type": "object",
+    "properties": {
+      "serviceTypes": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "ANY",
+            "CUSTOM",
+            "BGP",
+            "DHCP",
+            "DNS",
+            "FTP",
+            "HTTP",
+            "HTTPS",
+            "IMAP",
+            "IMAPS",
+            "NTP",
+            "POP3",
+            "POP3S",
+            "SMTP",
+            "SMTPS",
+            "SNMP",
+            "SSH",
+            "TELNET",
+            "TFTP"
+          ]
+        }
+      },
+      "customServiceTypes": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/CustomServiceTypeResponse"
+        }
+      }
+    }
+  },
+  "IpSecConfigRequest": {
+    "type": "object",
+    "properties": {
+      "platform": {
+        "type": "string",
+        "enum": [
+          "AWS",
+          "CISCO",
+          "AZURE",
+          "GCP",
+          "OTHER"
+        ]
+      },
+      "authenticationType": {
+        "type": "string",
+        "enum": [
+          "SHARED_SECRET",
+          "CERTIFICATE"
+        ]
+      },
+      "remoteSitePublicIp": {
+        "type": "string"
+      },
+      "preSharedKey": {
+        "type": "string"
+      },
+      "caCertificate": {
+        "type": "string"
+      },
+      "peerCertificate": {
+        "type": "string"
+      },
+      "remoteGatewayCertificate": {
+        "type": "string"
+      },
+      "peerCertificatePrivateKey": {
+        "type": "string"
+      },
+      "peerCertificateKeyPassphrase": {
+        "type": "string"
+      },
+      "ikeProtocol": {
+        "$ref": "#/components/schemas/IkeProtocol"
+      },
+      "hostname": {
+        "type": "string"
+      },
+      "domain": {
+        "type": "string"
+      }
+    }
+  },
+  "NetworkConnectorRequest": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "vpnRegionId": {
+        "type": "string"
+      },
+      "ipSecConfig": {
+        "$ref": "#/components/schemas/IpSecConfigRequest"
+      }
+    }
+  },
+  "ApplicationRequest": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "routes": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/ApplicationRouteRequest"
+        }
+      },
+      "config": {
+        "$ref": "#/components/schemas/ServiceConfigRequest"
+      }
+    }
+  },
+  "ApplicationRouteRequest": {
+    "type": "object",
+    "properties": {
+      "value": {
+        "type": "string"
+      },
+      "allowEmbeddedIp": {
+        "type": "boolean"
+      }
+    }
+  },
+  "ApplicationResponse": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "example": "00000000-0000-0000-0000-000000000000"
+      },
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "networkItemId": {
+        "type": "string"
+      },
+      "networkItemType": {
+        "type": "string",
+        "enum": [
+          "NETWORK",
+          "HOST"
+        ]
+      },
+      "routes": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/DomainRouteResponse"
+        }
+      },
+      "config": {
+        "$ref": "#/components/schemas/ServiceConfigResponse"
+      }
+    }
+  },
+  "DomainRouteResponse": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "example": "00000000-0000-0000-0000-000000000000"
+      },
+      "type": {
+        "type": "string",
+        "enum": [
+          "DOMAIN"
+        ]
+      },
+      "domain": {
+        "type": "string"
+      },
+      "allowEmbeddedIp": {
+        "type": "boolean"
+      }
+    }
+  },
+  "CountryCheckRequest": {
+    "type": "object",
+    "properties": {
+      "countries": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "allowed": {
+        "type": "boolean"
+      }
+    }
+  },
+  "DefaultCheckRequest": {
+    "type": "object",
+    "properties": {
+      "allowed": {
+        "type": "boolean"
+      }
+    }
+  },
+  "IpCheckRequest": {
+    "type": "object",
+    "properties": {
+      "allowed": {
+        "type": "boolean"
+      },
+      "ips": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/IpRequest"
+        }
+      }
+    }
+  },
+  "IpRequest": {
+    "type": "object",
+    "properties": {
+      "ip": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      }
+    }
+  },
+  "LocationContextRequest": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "userGroupsIds": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "ipCheck": {
+        "$ref": "#/components/schemas/IpCheckRequest"
+      },
+      "countryCheck": {
+        "$ref": "#/components/schemas/CountryCheckRequest"
+      },
+      "defaultCheck": {
+        "$ref": "#/components/schemas/DefaultCheckRequest"
+      }
+    }
+  },
+  "CountryCheckResponse": {
+    "type": "object",
+    "properties": {
+      "countries": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "allowed": {
+        "type": "boolean"
+      }
+    }
+  },
+  "DefaultCheckResponse": {
+    "type": "object",
+    "properties": {
+      "allowed": {
+        "type": "boolean"
+      }
+    }
+  },
+  "IpCheckResponse": {
+    "type": "object",
+    "properties": {
+      "allowed": {
+        "type": "boolean"
+      },
+      "ips": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/IpResponse"
+        }
+      }
+    }
+  },
+  "IpResponse": {
+    "type": "object",
+    "properties": {
+      "ip": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      }
+    }
+  },
+  "LocationContextResponse": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "userGroupsIds": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "ipCheck": {
+        "$ref": "#/components/schemas/IpCheckResponse"
+      },
+      "countryCheck": {
+        "$ref": "#/components/schemas/CountryCheckResponse"
+      },
+      "defaultCheck": {
+        "$ref": "#/components/schemas/DefaultCheckResponse"
+      }
+    }
+  },
+  "HostUpdateRequest": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "internetAccess": {
+        "type": "string",
+        "enum": [
+          "SPLIT_TUNNEL_ON",
+          "SPLIT_TUNNEL_OFF",
+          "RESTRICTED_INTERNET"
+        ]
+      },
+      "domain": {
+        "type": "string"
+      },
+      "gatewaysIds": {
+        "type": "array",
+        "example": [
+          "00000000-0000-0000-0000-000000000000"
+        ],
+        "items": {
+          "type": "string",
+          "example": "[\"00000000-0000-0000-0000-000000000000\"]"
+        }
+      }
+    }
+  },
+  "HostConnectorResponse": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "example": "00000000-0000-0000-0000-000000000000"
+      },
+      "networkItemId": {
+        "type": "string",
+        "example": "00000000-0000-0000-0000-000000000000"
+      },
+      "networkItemType": {
+        "type": "string",
+        "enum": [
+          "NETWORK",
+          "HOST"
+        ]
+      },
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "vpnRegionId": {
+        "type": "string"
+      },
+      "ipV4Address": {
+        "type": "string"
+      },
+      "ipV6Address": {
+        "type": "string"
+      },
+      "connectionStatus": {
+        "type": "string",
+        "enum": [
+          "ONLINE",
+          "OFFLINE",
+          "ONLINE_WITH_ISSUES"
+        ]
+      }
+    }
+  },
+  "HostResponse": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "example": "00000000-0000-0000-0000-000000000000"
+      },
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "internetAccess": {
+        "type": "string",
+        "enum": [
+          "SPLIT_TUNNEL_ON",
+          "SPLIT_TUNNEL_OFF",
+          "RESTRICTED_INTERNET"
+        ]
+      },
+      "domain": {
+        "type": "string"
+      },
+      "connectors": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/HostConnectorResponse"
+        }
+      },
+      "systemSubnets": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "gatewaysIds": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "HostIpServiceRequest": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "config": {
+        "$ref": "#/components/schemas/ServiceConfigRequest"
+      }
+    }
+  },
+  "HostIpServiceResponse": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "example": "00000000-0000-0000-0000-000000000000"
+      },
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "networkItemId": {
+        "type": "string"
+      },
+      "networkItemType": {
+        "type": "string",
+        "enum": [
+          "NETWORK",
+          "HOST"
+        ]
+      },
+      "config": {
+        "$ref": "#/components/schemas/ServiceConfigResponse"
+      }
+    }
+  },
+  "HostConnectorRequest": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "vpnRegionId": {
+        "type": "string"
+      }
+    }
+  },
+  "DnsRecordRequest": {
+    "type": "object",
+    "properties": {
+      "domain": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "ipv4Addresses": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "ipv6Addresses": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "DnsRecordResponse": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "example": "00000000-0000-0000-0000-000000000000"
+      },
+      "domain": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "ipv4Addresses": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "ipv6Addresses": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "ErrorDetails": {
+    "type": "object",
+    "properties": {
+      "errorCode": {
+        "type": "string"
+      },
+      "message": {
+        "type": "string"
+      },
+      "params": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "ErrorResponse": {
+    "type": "object",
+    "properties": {
+      "errorDetails": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/ErrorDetails"
+          }
+        }
+      },
+      "errorMessage": {
+        "type": "string"
+      },
+      "statusError": {
+        "type": "string"
+      }
+    }
+  },
+  "DeviceRequest": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "clientUUID": {
+        "type": "string"
+      }
+    }
+  },
+  "AndroidRequest": {
+    "type": "object",
+    "properties": {
+      "allowed": {
+        "type": "boolean"
+      }
+    }
+  },
+  "DevicePostureRequest": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "userGroupsIds": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "windows": {
+        "$ref": "#/components/schemas/WindowsRequest"
+      },
+      "macos": {
+        "$ref": "#/components/schemas/MacOSRequest"
+      },
+      "linux": {
+        "$ref": "#/components/schemas/LinuxRequest"
+      },
+      "android": {
+        "$ref": "#/components/schemas/AndroidRequest"
+      },
+      "ios": {
+        "$ref": "#/components/schemas/IOSRequest"
+      }
+    }
+  },
+  "DiskEncryption": {
+    "type": "object",
+    "properties": {
+      "type": {
+        "type": "string",
+        "enum": [
+          "FULL_DISK",
+          "SPECIFIC_VOLUME"
+        ]
+      },
+      "volume": {
+        "type": "string"
+      }
+    }
+  },
+  "IOSRequest": {
+    "type": "object",
+    "properties": {
+      "allowed": {
+        "type": "boolean"
+      }
+    }
+  },
+  "LinuxRequest": {
+    "type": "object",
+    "properties": {
+      "allowed": {
+        "type": "boolean"
+      }
+    }
+  },
+  "MacOSRequest": {
+    "type": "object",
+    "properties": {
+      "allowed": {
+        "type": "boolean"
+      },
+      "version": {
+        "$ref": "#/components/schemas/VersionPolicy"
+      },
+      "antiviruses": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "AVAST",
+            "AVG",
+            "AVIRA",
+            "BITDEFENDER",
+            "CROWDSTRIKE_FALCON",
+            "ESET",
+            "MALWAREBYTES",
+            "MCAFEE",
+            "MICROSOFT_DEFENDER",
+            "NORTON",
+            "SENTINEL_ONE"
+          ]
+        }
+      },
+      "diskEncrypted": {
+        "type": "boolean"
+      },
+      "certificate": {
+        "type": "string"
+      }
+    }
+  },
+  "VersionPolicy": {
+    "type": "object",
+    "properties": {
+      "version": {
+        "type": "string"
+      },
+      "condition": {
+        "type": "string",
+        "enum": [
+          "GTE",
+          "LTE",
+          "EQUAL"
+        ]
+      }
+    }
+  },
+  "WindowsRequest": {
+    "type": "object",
+    "properties": {
+      "allowed": {
+        "type": "boolean"
+      },
+      "version": {
+        "$ref": "#/components/schemas/VersionPolicy"
+      },
+      "antiviruses": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "AVAST",
+            "AVG",
+            "AVIRA",
+            "BITDEFENDER",
+            "CROWDSTRIKE_FALCON",
+            "ESET",
+            "MALWAREBYTES",
+            "MCAFEE",
+            "MICROSOFT_DEFENDER",
+            "NORTON",
+            "SENTINEL_ONE"
+          ]
+        }
+      },
+      "diskEncryption": {
+        "$ref": "#/components/schemas/DiskEncryption"
+      },
+      "certificate": {
+        "type": "string"
+      }
+    }
+  },
+  "AndroidResponse": {
+    "type": "object",
+    "properties": {
+      "allowed": {
+        "type": "boolean"
+      }
+    }
+  },
+  "DevicePostureResponse": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "userGroupsIds": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "windows": {
+        "$ref": "#/components/schemas/WindowsResponse"
+      },
+      "macos": {
+        "$ref": "#/components/schemas/MacOSResponse"
+      },
+      "linux": {
+        "$ref": "#/components/schemas/LinuxResponse"
+      },
+      "android": {
+        "$ref": "#/components/schemas/AndroidResponse"
+      },
+      "ios": {
+        "$ref": "#/components/schemas/IOSResponse"
+      }
+    }
+  },
+  "IOSResponse": {
+    "type": "object",
+    "properties": {
+      "allowed": {
+        "type": "boolean"
+      }
+    }
+  },
+  "LinuxResponse": {
+    "type": "object",
+    "properties": {
+      "allowed": {
+        "type": "boolean"
+      }
+    }
+  },
+  "MacOSResponse": {
+    "type": "object",
+    "properties": {
+      "allowed": {
+        "type": "boolean"
+      },
+      "version": {
+        "$ref": "#/components/schemas/VersionPolicy"
+      },
+      "antiviruses": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "AVAST",
+            "AVG",
+            "AVIRA",
+            "BITDEFENDER",
+            "CROWDSTRIKE_FALCON",
+            "ESET",
+            "MALWAREBYTES",
+            "MCAFEE",
+            "MICROSOFT_DEFENDER",
+            "NORTON",
+            "SENTINEL_ONE"
+          ]
+        }
+      },
+      "diskEncrypted": {
+        "type": "boolean"
+      },
+      "certificate": {
+        "type": "string"
+      }
+    }
+  },
+  "WindowsResponse": {
+    "type": "object",
+    "properties": {
+      "allowed": {
+        "type": "boolean"
+      },
+      "version": {
+        "$ref": "#/components/schemas/VersionPolicy"
+      },
+      "antiviruses": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "AVAST",
+            "AVG",
+            "AVIRA",
+            "BITDEFENDER",
+            "CROWDSTRIKE_FALCON",
+            "ESET",
+            "MALWAREBYTES",
+            "MCAFEE",
+            "MICROSOFT_DEFENDER",
+            "NORTON",
+            "SENTINEL_ONE"
+          ]
+        }
+      },
+      "diskEncryption": {
+        "$ref": "#/components/schemas/DiskEncryption"
+      },
+      "certificate": {
+        "type": "string"
+      }
+    }
+  },
+  "AccessGroupRequest": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "source": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/AccessItemSourceRequest"
+        }
+      },
+      "destination": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/AccessItemDestinationRequest"
+        }
+      }
+    }
+  },
+  "AccessItemDestinationRequest": {
+    "type": "object",
+    "properties": {
+      "type": {
+        "type": "string",
+        "enum": [
+          "USER_GROUP",
+          "NETWORK_SERVICE",
+          "HOST_SERVICE",
+          "PUBLISHED_SERVICE"
+        ]
+      },
+      "allCovered": {
+        "type": "boolean"
+      },
+      "parent": {
+        "type": "string",
+        "example": "00000000-0000-0000-0000-000000000000"
+      },
+      "children": {
+        "type": "array",
+        "example": [
+          "00000000-0000-0000-0000-000000000000"
+        ],
+        "items": {
+          "type": "string",
+          "example": "[\"00000000-0000-0000-0000-000000000000\"]"
+        }
+      }
+    }
+  },
+  "AccessItemSourceRequest": {
+    "type": "object",
+    "properties": {
+      "type": {
+        "type": "string",
+        "enum": [
+          "USER_GROUP",
+          "NETWORK_SERVICE",
+          "HOST"
+        ]
+      },
+      "allCovered": {
+        "type": "boolean"
+      },
+      "parent": {
+        "type": "string",
+        "example": "00000000-0000-0000-0000-000000000000"
+      },
+      "children": {
+        "type": "array",
+        "example": [
+          "00000000-0000-0000-0000-000000000000"
+        ],
+        "items": {
+          "type": "string",
+          "example": "[\"00000000-0000-0000-0000-000000000000\"]"
+        }
+      }
+    }
+  },
+  "AccessGroupResponse": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "example": "00000000-0000-0000-0000-000000000000"
+      },
+      "name": {
+        "type": "string",
+        "example": "Default Full Mesh Access"
+      },
+      "description": {
+        "type": "string",
+        "example": "description"
+      },
+      "defaultGroup": {
+        "type": "boolean",
+        "example": true
+      },
+      "source": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/AccessItemSourceResponse"
+        }
+      },
+      "destination": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/AccessItemDestinationResponse"
+        }
+      }
+    }
+  },
+  "AccessItemDestinationResponse": {
+    "type": "object",
+    "properties": {
+      "type": {
+        "type": "string",
+        "enum": [
+          "USER_GROUP",
+          "NETWORK_SERVICE",
+          "HOST_SERVICE",
+          "PUBLISHED_SERVICE"
+        ]
+      },
+      "allCovered": {
+        "type": "boolean"
+      },
+      "parent": {
+        "type": "string",
+        "example": "00000000-0000-0000-0000-000000000000"
+      },
+      "children": {
+        "type": "array",
+        "example": [
+          "00000000-0000-0000-0000-000000000000"
+        ],
+        "items": {
+          "type": "string",
+          "example": "[\"00000000-0000-0000-0000-000000000000\"]"
+        }
+      }
+    }
+  },
+  "AccessItemSourceResponse": {
+    "type": "object",
+    "properties": {
+      "type": {
+        "type": "string",
+        "example": "NETWORK_SERVICE"
+      },
+      "allCovered": {
+        "type": "boolean",
+        "example": false
+      },
+      "parent": {
+        "type": "string",
+        "example": "00000000-0000-0000-0000-000000000000"
+      },
+      "children": {
+        "type": "array",
+        "example": [
+          "00000000-0000-0000-0000-000000000000"
+        ],
+        "items": {
+          "type": "string",
+          "example": "[\"00000000-0000-0000-0000-000000000000\"]"
+        }
+      }
+    }
+  },
+  "UserCreateRequest": {
+    "type": "object",
+    "properties": {
+      "firstName": {
+        "type": "string"
+      },
+      "lastName": {
+        "type": "string"
+      },
+      "username": {
+        "type": "string"
+      },
+      "email": {
+        "type": "string"
+      },
+      "groupId": {
+        "type": "string",
+        "example": "00000000-0000-0000-0000-000000000000"
+      },
+      "role": {
+        "type": "string",
+        "enum": [
+          "OWNER",
+          "MEMBER",
+          "ADMIN"
+        ]
+      },
+      "devices": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/DeviceRequest"
+        }
+      }
+    }
+  },
+  "OAuthResponse": {
+    "type": "object",
+    "properties": {
+      "access_token": {
+        "type": "string",
+        "example": "token value"
+      },
+      "token_type": {
+        "type": "string",
+        "example": "bearer"
+      },
+      "expires_in": {
+        "type": "integer",
+        "format": "int32",
+        "example": 43199
+      },
+      "scope": {
+        "type": "string",
+        "example": "read write"
+      }
+    }
+  },
+  "NetworkCreateRequest": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "internetAccess": {
+        "type": "string",
+        "enum": [
+          "SPLIT_TUNNEL_ON",
+          "SPLIT_TUNNEL_OFF",
+          "RESTRICTED_INTERNET"
+        ]
+      },
+      "egress": {
+        "type": "boolean"
+      },
+      "routes": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/NetworkRouteRequest"
+        }
+      },
+      "connectors": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/NetworkConnectorRequest"
+        }
+      },
+      "tunnelingProtocol": {
+        "type": "string",
+        "enum": [
+          "OPENVPN",
+          "IPSEC"
+        ]
+      },
+      "gatewaysIds": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "HostCreateRequest": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "internetAccess": {
+        "type": "string",
+        "enum": [
+          "SPLIT_TUNNEL_ON",
+          "SPLIT_TUNNEL_OFF",
+          "RESTRICTED_INTERNET"
+        ]
+      },
+      "domain": {
+        "type": "string"
+      },
+      "connectors": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/HostConnectorRequest"
+        }
+      },
+      "gatewaysIds": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "RemoveDomainsRequest": {
+    "type": "object",
+    "properties": {
+      "domains": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "AddDomainsRequest": {
+    "type": "object",
+    "properties": {
+      "domainAndComments": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/DomainAndComment"
+        }
+      }
+    }
+  },
+  "DomainAndComment": {
+    "type": "object",
+    "properties": {
+      "domain": {
+        "type": "string"
+      },
+      "comment": {
+        "type": "string"
+      }
+    }
+  },
+  "PageUserResponse": {
+    "type": "object",
+    "properties": {
+      "content": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/UserResponse"
+        }
+      },
+      "totalElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "totalPages": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "numberOfElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "page": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "size": {
+        "type": "integer",
+        "format": "int32"
+      }
+    }
+  },
+  "PageUserGroupResponse": {
+    "type": "object",
+    "properties": {
+      "content": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/UserGroupResponse"
+        }
+      },
+      "totalElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "totalPages": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "numberOfElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "page": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "size": {
+        "type": "integer",
+        "format": "int32"
+      }
+    }
+  },
+  "GroupMappingRecordResponse": {
+    "type": "object",
+    "properties": {
+      "groupId": {
+        "type": "string"
+      },
+      "idpGroupNames": {
+        "uniqueItems": true,
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "sortingOrder": {
+        "type": "integer",
+        "format": "int32"
+      }
+    }
+  },
+  "GroupMappingResponse": {
+    "type": "object",
+    "properties": {
+      "fallbackGroupId": {
+        "type": "string"
+      },
+      "mappings": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/GroupMappingRecordResponse"
+        }
+      }
+    }
+  },
+  "SessionResponse": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "userName": {
+        "type": "string"
+      },
+      "userId": {
+        "type": "string"
+      },
+      "userGroup": {
+        "type": "string"
+      },
+      "hostName": {
+        "type": "string"
+      },
+      "hostId": {
+        "type": "string"
+      },
+      "networkName": {
+        "type": "string"
+      },
+      "networkId": {
+        "type": "string"
+      },
+      "deviceName": {
+        "type": "string"
+      },
+      "deviceId": {
+        "type": "string"
+      },
+      "clientUUID": {
+        "type": "string"
+      },
+      "osType": {
+        "type": "string"
+      },
+      "osVersion": {
+        "type": "string"
+      },
+      "connectorName": {
+        "type": "string"
+      },
+      "connectorId": {
+        "type": "string"
+      },
+      "region": {
+        "type": "string"
+      },
+      "sessionStartTime": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": {
+        "type": "string"
+      },
+      "disconnectReason": {
+        "type": "string"
+      },
+      "disconnectReasonDescription": {
+        "type": "string"
+      },
+      "firstName": {
+        "type": "string"
+      },
+      "lastName": {
+        "type": "string"
+      },
+      "email": {
+        "type": "string"
+      },
+      "bytesIn": {
+        "type": "integer",
+        "format": "int64"
+      },
+      "bytesOut": {
+        "type": "integer",
+        "format": "int64"
+      },
+      "protocol": {
+        "type": "string"
+      },
+      "publicIp": {
+        "type": "string"
+      },
+      "tunnelIpV4": {
+        "type": "string"
+      },
+      "tunnelIpV6": {
+        "type": "string"
+      },
+      "sessionEndTime": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "sessionDurationSeconds": {
+        "type": "integer",
+        "format": "int64"
+      }
+    }
+  },
+  "SessionsResponse": {
+    "type": "object",
+    "properties": {
+      "sessions": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/SessionResponse"
+        }
+      },
+      "nextCursor": {
+        "type": "string"
+      }
+    }
+  },
+  "VpnRegionResponse": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "continent": {
+        "type": "string"
+      },
+      "country": {
+        "type": "string"
+      },
+      "countryIso": {
+        "type": "string"
+      },
+      "regionName": {
+        "type": "string"
+      }
+    }
+  },
+  "PageNetworkResponse": {
+    "type": "object",
+    "properties": {
+      "content": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/NetworkResponse"
+        }
+      },
+      "totalElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "totalPages": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "numberOfElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "page": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "size": {
+        "type": "integer",
+        "format": "int32"
+      }
+    }
+  },
+  "PageNetworkRouteResponse": {
+    "type": "object",
+    "properties": {
+      "content": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/NetworkRouteResponse"
+        }
+      },
+      "totalElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "totalPages": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "numberOfElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "page": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "size": {
+        "type": "integer",
+        "format": "int32"
+      }
+    }
+  },
+  "PageNetworkIpServiceResponse": {
+    "type": "object",
+    "properties": {
+      "content": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/NetworkIpServiceResponse"
+        }
+      },
+      "totalElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "totalPages": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "numberOfElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "page": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "size": {
+        "type": "integer",
+        "format": "int32"
+      }
+    }
+  },
+  "PageNetworkConnectorResponse": {
+    "type": "object",
+    "properties": {
+      "content": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/NetworkConnectorResponse"
+        }
+      },
+      "totalElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "totalPages": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "numberOfElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "page": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "size": {
+        "type": "integer",
+        "format": "int32"
+      }
+    }
+  },
+  "PageApplicationResponse": {
+    "type": "object",
+    "properties": {
+      "content": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/ApplicationResponse"
+        }
+      },
+      "totalElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "totalPages": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "numberOfElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "page": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "size": {
+        "type": "integer",
+        "format": "int32"
+      }
+    }
+  },
+  "PageLocationContextResponse": {
+    "type": "object",
+    "properties": {
+      "content": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/LocationContextResponse"
+        }
+      },
+      "totalElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "totalPages": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "numberOfElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "page": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "size": {
+        "type": "integer",
+        "format": "int32"
+      }
+    }
+  },
+  "PageHostResponse": {
+    "type": "object",
+    "properties": {
+      "content": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/HostResponse"
+        }
+      },
+      "totalElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "totalPages": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "numberOfElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "page": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "size": {
+        "type": "integer",
+        "format": "int32"
+      }
+    }
+  },
+  "PageHostIpServiceResponse": {
+    "type": "object",
+    "properties": {
+      "content": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/HostIpServiceResponse"
+        }
+      },
+      "totalElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "totalPages": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "numberOfElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "page": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "size": {
+        "type": "integer",
+        "format": "int32"
+      }
+    }
+  },
+  "PageHostConnectorResponse": {
+    "type": "object",
+    "properties": {
+      "content": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/HostConnectorResponse"
+        }
+      },
+      "totalElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "totalPages": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "numberOfElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "page": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "size": {
+        "type": "integer",
+        "format": "int32"
+      }
+    }
+  },
+  "PageDnsRecordResponse": {
+    "type": "object",
+    "properties": {
+      "content": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/DnsRecordResponse"
+        }
+      },
+      "totalElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "totalPages": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "numberOfElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "page": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "size": {
+        "type": "integer",
+        "format": "int32"
+      }
+    }
+  },
+  "PageDeviceResponse": {
+    "type": "object",
+    "properties": {
+      "content": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/DeviceResponse"
+        }
+      },
+      "totalElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "totalPages": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "numberOfElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "page": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "size": {
+        "type": "integer",
+        "format": "int32"
+      }
+    }
+  },
+  "PageDevicePostureResponse": {
+    "type": "object",
+    "properties": {
+      "content": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/DevicePostureResponse"
+        }
+      },
+      "totalElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "totalPages": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "numberOfElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "page": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "size": {
+        "type": "integer",
+        "format": "int32"
+      }
+    }
+  },
+  "PageAccessGroupResponse": {
+    "type": "object",
+    "properties": {
+      "content": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/AccessGroupResponse"
+        }
+      },
+      "totalElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "totalPages": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "numberOfElements": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "page": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "size": {
+        "type": "integer",
+        "format": "int32"
+      }
+    }
+  }
+}

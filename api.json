@@ -1,0 +1,614 @@
+{
+  "User": [
+    {
+      "actions": [
+        "delete",
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/users/{id}",
+      "hint": "Get an existing user"
+    },
+    {
+      "actions": [
+        "get",
+        "post"
+      ],
+      "api": "/api/v1/users",
+      "hint": "Get page of existing users"
+    }
+  ],
+  "User Group": [
+    {
+      "actions": [
+        "delete",
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/user-groups/{id}",
+      "hint": "Get user group"
+    },
+    {
+      "actions": [
+        "get",
+        "post"
+      ],
+      "api": "/api/v1/user-groups",
+      "hint": "Get page of existing user groups"
+    }
+  ],
+  "Settings": [
+    {
+      "actions": [
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/settings/wpc/topology",
+      "hint": "Get topology"
+    },
+    {
+      "actions": [
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/settings/wpc/subnet",
+      "hint": "Get subnet"
+    },
+    {
+      "actions": [
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/settings/wpc/snat",
+      "hint": "Get SNAT"
+    },
+    {
+      "actions": [
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/settings/wpc/domain-routing-subnet",
+      "hint": "Get domain routing subnet"
+    },
+    {
+      "actions": [
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/settings/wpc/default-region",
+      "hint": "Get default region"
+    },
+    {
+      "actions": [
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/settings/wpc/client-options",
+      "hint": "Get client options"
+    },
+    {
+      "actions": [
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/settings/users/connection-timeout",
+      "hint": "Get connection timeout"
+    },
+    {
+      "actions": [
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/settings/user/profile-distribution",
+      "hint": "Get profile distribution"
+    },
+    {
+      "actions": [
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/settings/user/device-enforcement",
+      "hint": "Get device enforcement"
+    },
+    {
+      "actions": [
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/settings/user/device-allowance",
+      "hint": "Get device allowance per user"
+    },
+    {
+      "actions": [
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/settings/user/device-allowance-force-update",
+      "hint": "Get force update device allowance"
+    },
+    {
+      "actions": [
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/settings/user/connect-auth",
+      "hint": "Get default connect auth"
+    },
+    {
+      "actions": [
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/settings/dns/zones",
+      "hint": "Get DNS zones"
+    },
+    {
+      "actions": [
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/settings/dns/proxy-enabled",
+      "hint": "Get DNS proxy enabled"
+    },
+    {
+      "actions": [
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/settings/dns/default-suffix",
+      "hint": "Get default DNS suffix"
+    },
+    {
+      "actions": [
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/settings/dns/custom-servers",
+      "hint": "Get DNS server addresses"
+    },
+    {
+      "actions": [
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/settings/auth/two-factor-auth",
+      "hint": "Get 2FA enabled"
+    },
+    {
+      "actions": [
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/settings/auth/trusted-devices-allowed",
+      "hint": "Get trusted devices allowed"
+    },
+    {
+      "actions": [
+        "get"
+      ],
+      "api": "/api/v1/settings/auth/saml/group-mappings",
+      "hint": "Get SAML group mappings"
+    },
+    {
+      "actions": [
+        "get"
+      ],
+      "api": "/api/v1/settings/auth/ldap/group-mappings",
+      "hint": "Get LDAP group mappings"
+    }
+  ],
+  "Network": [
+    {
+      "actions": [
+        "delete",
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/networks/{id}",
+      "hint": "Get existing network"
+    },
+    {
+      "actions": [
+        "delete",
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/networks/routes/{id}",
+      "hint": "Get route"
+    },
+    {
+      "actions": [
+        "delete",
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/networks/ip-services/{id}",
+      "hint": "Get existing network IP service"
+    },
+    {
+      "actions": [
+        "delete",
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/networks/connectors/{id}",
+      "hint": "Get an existing connector"
+    },
+    {
+      "actions": [
+        "delete",
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/networks/applications/{id}",
+      "hint": "Get existing network application"
+    },
+    {
+      "actions": [
+        "get",
+        "post"
+      ],
+      "api": "/api/v1/networks",
+      "hint": "Get page of existing networks"
+    },
+    {
+      "actions": [
+        "get",
+        "post"
+      ],
+      "api": "/api/v1/networks/routes",
+      "hint": "Get page of existing network routes"
+    },
+    {
+      "actions": [
+        "get",
+        "post"
+      ],
+      "api": "/api/v1/networks/ip-services",
+      "hint": "Get page of existing network IP services"
+    },
+    {
+      "actions": [
+        "get",
+        "post"
+      ],
+      "api": "/api/v1/networks/connectors",
+      "hint": "Get page of existing network connectors"
+    },
+    {
+      "actions": [
+        "delete",
+        "post"
+      ],
+      "api": "/api/v1/networks/connectors/{id}/profile",
+      "hint": "Generate .ovpn profile for an existing network connector"
+    },
+    {
+      "actions": [
+        "post"
+      ],
+      "api": "/api/v1/networks/connectors/{id}/profile/encrypt",
+      "hint": "Generate .ovpn profile token for an existing network connector"
+    },
+    {
+      "actions": [
+        "post"
+      ],
+      "api": "/api/v1/networks/connectors/{id}/profile/bundle",
+      "hint": "Generate an app bundled with connector profile"
+    },
+    {
+      "actions": [
+        "post"
+      ],
+      "api": "/api/v1/networks/connectors/{id}/ipsec/stop",
+      "hint": "Stop connection for existing IPSEC connector"
+    },
+    {
+      "actions": [
+        "post"
+      ],
+      "api": "/api/v1/networks/connectors/{id}/ipsec/start",
+      "hint": "Initiate connection for existing IPSEC connector"
+    },
+    {
+      "actions": [
+        "get",
+        "post"
+      ],
+      "api": "/api/v1/networks/applications",
+      "hint": "Get page of existing network applications"
+    }
+  ],
+  "Location Context": [
+    {
+      "actions": [
+        "delete",
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/location-contexts/{id}",
+      "hint": "Get location context policy"
+    },
+    {
+      "actions": [
+        "get",
+        "post"
+      ],
+      "api": "/api/v1/location-contexts",
+      "hint": "Get location context policies"
+    }
+  ],
+  "Host": [
+    {
+      "actions": [
+        "delete",
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/hosts/{id}",
+      "hint": "Get existing host"
+    },
+    {
+      "actions": [
+        "delete",
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/hosts/ip-services/{id}",
+      "hint": "Get existing host IP service"
+    },
+    {
+      "actions": [
+        "delete",
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/hosts/connectors/{id}",
+      "hint": "Get an existing connector"
+    },
+    {
+      "actions": [
+        "delete",
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/hosts/applications/{id}",
+      "hint": "Get existing host application"
+    },
+    {
+      "actions": [
+        "get",
+        "post"
+      ],
+      "api": "/api/v1/hosts",
+      "hint": "Get page of existing hosts"
+    },
+    {
+      "actions": [
+        "get",
+        "post"
+      ],
+      "api": "/api/v1/hosts/ip-services",
+      "hint": "Get page of existing host IP services"
+    },
+    {
+      "actions": [
+        "get",
+        "post"
+      ],
+      "api": "/api/v1/hosts/connectors",
+      "hint": "Get page of existing connectors"
+    },
+    {
+      "actions": [
+        "delete",
+        "post"
+      ],
+      "api": "/api/v1/hosts/connectors/{id}/profile",
+      "hint": "Generate .ovpn profile for an existing connector"
+    },
+    {
+      "actions": [
+        "post"
+      ],
+      "api": "/api/v1/hosts/connectors/{id}/profile/encrypt",
+      "hint": "Generate .ovpn profile token for an existing connector"
+    },
+    {
+      "actions": [
+        "post"
+      ],
+      "api": "/api/v1/hosts/connectors/{id}/profile/bundle",
+      "hint": "Generate an app bundled with connector profile"
+    },
+    {
+      "actions": [
+        "get",
+        "post"
+      ],
+      "api": "/api/v1/hosts/applications",
+      "hint": "Get page of existing host applications"
+    }
+  ],
+  "DNS Record": [
+    {
+      "actions": [
+        "delete",
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/dns-records/{id}",
+      "hint": "Get DNS record"
+    },
+    {
+      "actions": [
+        "get",
+        "post"
+      ],
+      "api": "/api/v1/dns-records",
+      "hint": "Get page of existing DNS records"
+    }
+  ],
+  "DNS Log": [
+    {
+      "actions": [
+        "put"
+      ],
+      "api": "/api/v1/dns-log/user-dns-resolutions/enable",
+      "hint": "Enable DNS Log"
+    },
+    {
+      "actions": [
+        "put"
+      ],
+      "api": "/api/v1/dns-log/user-dns-resolutions/disable",
+      "hint": "Disable DNS Log"
+    },
+    {
+      "actions": [
+        "get"
+      ],
+      "api": "/api/v1/dns-log/user-dns-resolutions/page",
+      "hint": "Get DNS requests sent by user."
+    }
+  ],
+  "Device": [
+    {
+      "actions": [
+        "delete",
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/devices/{id}",
+      "hint": "Get existing device"
+    },
+    {
+      "actions": [
+        "get",
+        "post"
+      ],
+      "api": "/api/v1/devices",
+      "hint": "Get devices"
+    },
+    {
+      "actions": [
+        "delete",
+        "post"
+      ],
+      "api": "/api/v1/devices/{id}/profile",
+      "hint": "Generate .ovpn profile for an existing device."
+    }
+  ],
+  "Device Posture": [
+    {
+      "actions": [
+        "delete",
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/device-postures/{id}",
+      "hint": "Get device posture policy"
+    },
+    {
+      "actions": [
+        "get",
+        "post"
+      ],
+      "api": "/api/v1/device-postures",
+      "hint": "Get device posture policies"
+    }
+  ],
+  "Access Group": [
+    {
+      "actions": [
+        "delete",
+        "get",
+        "put"
+      ],
+      "api": "/api/v1/access-groups/{id}",
+      "hint": "Get access group"
+    },
+    {
+      "actions": [
+        "get",
+        "post"
+      ],
+      "api": "/api/v1/access-groups",
+      "hint": "Get existing access groups page"
+    },
+    {
+      "actions": [
+        "delete",
+        "post"
+      ],
+      "api": "/api/v1/access-groups/{id}/source",
+      "hint": "Add new source to an existing access group"
+    },
+    {
+      "actions": [
+        "delete",
+        "post"
+      ],
+      "api": "/api/v1/access-groups/{id}/destination",
+      "hint": "Add new destination to an existing access group"
+    }
+  ],
+  "OAuth": [
+    {
+      "actions": [
+        "post"
+      ],
+      "api": "/api/v1/oauth/token",
+      "hint": "Request OAuth token"
+    }
+  ],
+  "Cyber Shield Domain Filtering": [
+    {
+      "actions": [
+        "post"
+      ],
+      "api": "/api/v1/cybershield/block-list-remove-domains",
+      "hint": "Remove a list of domains from Cyber Shield Block List."
+    },
+    {
+      "actions": [
+        "post"
+      ],
+      "api": "/api/v1/cybershield/block-list-add-domains",
+      "hint": "Extend a list of domains in Cyber Shield Block List."
+    },
+    {
+      "actions": [
+        "post"
+      ],
+      "api": "/api/v1/cybershield/allow-list-remove-domains",
+      "hint": "Remove a list of domains from Cyber Shield Allow List."
+    },
+    {
+      "actions": [
+        "post"
+      ],
+      "api": "/api/v1/cybershield/allow-list-add-domains",
+      "hint": "Extend a list of domains in Cyber Shield Allow List."
+    }
+  ],
+  "Sessions": [
+    {
+      "actions": [
+        "get"
+      ],
+      "api": "/api/v1/sessions",
+      "hint": "Returns a list of OpenVPN sessions by batches (up to 100 in a single request)."
+    }
+  ],
+  "Region": [
+    {
+      "actions": [
+        "get"
+      ],
+      "api": "/api/v1/regions",
+      "hint": "Get existing regions"
+    }
+  ]
+}

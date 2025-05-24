@@ -1,0 +1,17 @@
+[project]
+name = "connexa_openvpn_mcp_server"
+version = "0.1.0"
+description = "mcp for access server"
+readme = "README.md"
+requires-python = ">=3.12.4"
+dependencies = [
+    "mcp[cli]~=1.0.0", # Pinning version using ~=
+    "python-dotenv~=1.0.0", # Pinning version using ~=
+    "requests~=2.31.0", # Pinning version using ~=
+]
+
+[project.optional-dependencies]
+dev = ["uvicorn~=0.29.0"] # Pinning version using ~=
+
+[tool.uv.sources]
+mcp = { workspace = true }
