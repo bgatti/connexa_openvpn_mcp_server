@@ -48,22 +48,25 @@ except AttributeError as e_attr_rel: # Catch AttributeError from the initial rel
     logger.critical(f"CRITICAL: AttributeError during relative import: 'app' not found in .server module: {e_attr_rel}. Ensure server.py defines 'app = FastMCP(...)' at the module level.", exc_info=True)
     sys.exit(1)
 
-# The main execution block is implicitly __name__ == "__main__" when run via python -m
-logger.info(f"Starting '{app.name}' MCP server via __main__.py for stdio transport...")
-try:
-    app.run(transport="stdio")
-    # If app.run() returns, it means the server has stopped (e.g., stdio streams closed).
-    logger.info(f"'{app.name}' MCP server (via __main__.py) app.run() has completed. Server is stopping.")
-except SystemExit as e:
-    # Log SystemExit if it's not a clean exit (e.g., sys.exit(0) might be fine)
-    if e.code != 0:
-        logger.error(f"'{app.name}' MCP server (via __main__.py) exited with SystemExit code {e.code}.", exc_info=True)
-    else:
-        logger.info(f"'{app.name}' MCP server (via __main__.py) exited cleanly with SystemExit code {e.code}.")
-    raise # Re-raise SystemExit to ensure proper exit code propagation
-except KeyboardInterrupt:
-    logger.info(f"'{app.name}' MCP server (via __main__.py) received KeyboardInterrupt. Shutting down gracefully.")
-except Exception as e:
-    logger.critical(f"CRITICAL: '{app.name}' MCP server (via __main__.py) exited with an unexpected error: {e}", exc_info=True)
-finally:
-    logger.info(f"'{app.name}' MCP server (via __main__.py) __main__ execution block is ending.")
+if __name__ == "__main__":
+    # This block runs only when the script is executed directly
+    # (e.g., python -m connexa_openvpn_mcp_server or python connexa_openvpn_mcp_server/__main__.py)
+    # It will NOT run when imported by `mcp dev`.
+    logger.info(f"Executing as __main__: Starting '{app.name}' MCP server for stdio transport...")
+    try:
+        app.run(transport="stdio")
+        # If app.run() returns, it means the server has stopped (e.g., stdio streams closed).
+        logger.info(f"'{app.name}' MCP server (via __main__.py) app.run() has completed. Server is stopping.")
+    except SystemExit as e:
+        # Log SystemExit if it's not a clean exit (e.g., sys.exit(0) might be fine)
+        if e.code != 0:
+            logger.error(f"'{app.name}' MCP server (via __main__.py) exited with SystemExit code {e.code}.", exc_info=True)
+        else:
+            logger.info(f"'{app.name}' MCP server (via __main__.py) exited cleanly with SystemExit code {e.code}.")
+        raise # Re-raise SystemExit to ensure proper exit code propagation
+    except KeyboardInterrupt:
+        logger.info(f"'{app.name}' MCP server (via __main__.py) received KeyboardInterrupt. Shutting down gracefully.")
+    except Exception as e:
+        logger.critical(f"CRITICAL: '{app.name}' MCP server (via __main__.py) exited with an unexpected error: {e}", exc_info=True)
+    finally:
+        logger.info(f"'{app.name}' MCP server (via __main__.py) __main__ execution block is ending.")

@@ -1,0 +1,19 @@
+# Environment variables
+.env
+
+# AWS credentials
+aws_credentials
+*.pem
+
+# Python specific
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+venv/
+env/
+.venv/

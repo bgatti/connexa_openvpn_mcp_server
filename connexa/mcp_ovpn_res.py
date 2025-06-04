@@ -1,5 +1,7 @@
 import sys # Added for sys.stderr
 import asyncio # Needed for asyncio.to_thread
+import json # Added for JSON parsing
+import os # Added for path manipulation
 from mcp.server.fastmcp import FastMCP
 from .group_tools import get_user_groups, get_user_group # Import both functions
 
@@ -42,7 +44,7 @@ async def get_user_groups_resource(): # Removed mcp: FastMCP parameter
 import httpx # For making API calls
 from mcp.shared.exceptions import McpError # For error handling
 from mcp.types import ErrorData, INTERNAL_ERROR # For error handling
-from .user_tools import get_users, get_async_client # For the new resource and API client
+from ..user_tools import get_users, get_async_client # For the new resource and API client
 
 # Removed: from .region_tools import get_vpn_regions
 
@@ -180,3 +182,143 @@ async def get_regions_resource():
     finally:
         if client:
             await client.aclose()
+
+async def get_api_overview_resource():
+    """
+    Provides a high-level overview of the OpenVPN Connexa API components,
+    their relationships, and dependencies based on the swagger.json.
+    """
+    # This is a simplified interpretation of swagger.json for overview purposes.
+    # A more sophisticated approach would involve deeper parsing of schemas and paths.
+    overview = {
+        "title": "OpenVPN Connexa API Overview",
+        "description": "The API manages Users, Devices, User Groups, Networks, Hosts, and Access Controls for a VPN infrastructure.",
+        "main_entities": [
+            {
+                "name": "User",
+                "description": "Represents an individual who can connect to the VPN. Users belong to User Groups and can have multiple Devices.",
+                "relations": ["User Group (belongs to)", "Device (has many)", "Access Group (source)"]
+            },
+            {
+                "name": "Device",
+                "description": "A physical or virtual device (computer, phone) associated with a User, used to connect. Device posture policies can apply.",
+                "relations": ["User (belongs to)", "Device Posture (policy applies)"]
+            },
+            {
+                "name": "User Group",
+                "description": "A collection of Users, used to manage settings like VPN region access, internet access policies, and max devices per user. Can be a source in Access Groups.",
+                "relations": ["User (has many)", "VPN Region (access defined)", "Access Group (source)"]
+            },
+            {
+                "name": "Network",
+                "description": "Represents a private network (on-prem or cloud) connected to Cloud Connexa. Contains Connectors, Routes, and IP/Application Services. Can be a destination in Access Groups.",
+                "relations": ["Connector (has many)", "Route (has many)", "IP Service (has many)", "Application (has many)", "Access Group (destination)"]
+            },
+            {
+                "name": "Host",
+                "description": "A server within a private network running a Connector. Similar to Network, it can have Connectors and Services. Can be a destination in Access Groups.",
+                "relations": ["Connector (has many)", "IP Service (has many)", "Application (has many)", "Access Group (destination)"]
+            },
+            {
+                "name": "Connector",
+                "description": "A software instance that links a Network or Host to Cloud Connexa. Can be OpenVPN or IPsec type. Profiles can be generated for them.",
+                "relations": ["Network (belongs to) or Host (belongs to)", "VPN Region (connects via)"]
+            },
+            {
+                "name": "Access Group",
+                "description": "Defines access control rules: which 'Sources' (e.g., User Groups, Networks, Hosts) can access which 'Destinations' (e.g., Networks, Hosts, Services). This is central to network segmentation.",
+                "relations": ["User Group (source)", "Network (source/destination)", "Host (source/destination)"]
+            },
+            {
+                "name": "VPN Region",
+                "description": "A geographic point-of-presence for Cloud Connexa servers. User Groups and Connectors are associated with regions.",
+                "relations": ["User Group (access defined)", "Connector (connects via)"]
+            },
+            {
+                "name": "Device Posture",
+                "description": "Policies that define security requirements for Devices to connect (e.g., OS version, antivirus). Applied to User Groups.",
+                "relations": ["Device (applies to)", "User Group (associated via)"]
+            },
+            {
+                "name": "DNS Record",
+                "description": "Manages DNS 'A' records within the Cloud Connexa environment.",
+                "relations": []
+            },
+            {
+                "name": "Settings",
+                "description": "Various global and specific settings for the WPC (Wide-area Private Cloud), user defaults, DNS, and authentication.",
+                "relations": []
+            }
+        ],
+        "key_interactions_dependencies": [
+            "Users are assigned to User Groups, which dictate many of their permissions and connection parameters.",
+            "Devices are registered to Users. A User can have multiple Devices.",
+            "Access Groups are fundamental for controlling traffic flow, linking sources (like User Groups) to destinations (like Networks or specific services within them).",
+            "Networks and Hosts require Connectors to establish connectivity with the Cloud Connexa VPN.",
+            "Device Posture policies can restrict device connections based on compliance, often applied at the User Group level.",
+            "Authentication (OAuth) is required for API interaction. SAML/LDAP can be used for user authentication into the VPN."
+        ],
+        "inobvious_points": [
+            "The distinction between 'Network' and 'Host' allows for different levels of granularity in representing connected resources.",
+            "'Internet Access' settings (SPLIT_TUNNEL_ON/OFF, RESTRICTED_INTERNET) for User Groups and Networks significantly impact traffic routing.",
+            "Many 'Settings' endpoints allow fine-tuning of default behaviors for new users, devices, or connections."
+        ]
+    }
+    return overview
+
+# Determine the absolute path to the directory containing this script
+# This helps in reliably locating api.json and schema.json
+# __file__ is the path to the current script (mcp_ovpn_res.py)
+# os.path.dirname(__file__) gives the directory of mcp_ovpn_res.py
+# which is connexa_openvpn_mcp_server/
+SERVER_DIR = os.path.dirname(os.path.abspath(__file__))
+API_JSON_PATH = os.path.join(SERVER_DIR, "api.json")
+SCHEMA_JSON_PATH = os.path.join(SERVER_DIR, "schema.json")
+
+async def get_api_commands_resource():
+    """
+    Reads and returns the content of api.json.
+    """
+    print("get_api_commands_resource: Entered function", file=sys.stderr)
+    try:
+        print(f"get_api_commands_resource: Attempting to read {API_JSON_PATH}", file=sys.stderr)
+        def read_file_sync():
+            with open(API_JSON_PATH, 'r') as f:
+                return json.load(f)
+        
+        data = await asyncio.to_thread(read_file_sync)
+        print("get_api_commands_resource: Successfully read and parsed api.json", file=sys.stderr)
+        return data
+    except FileNotFoundError:
+        print(f"get_api_commands_resource: Error - api.json not found at {API_JSON_PATH}", file=sys.stderr)
+        return {"error": f"api.json not found at {API_JSON_PATH}"}
+    except json.JSONDecodeError as e:
+        print(f"get_api_commands_resource: Error decoding api.json: {e}", file=sys.stderr)
+        return {"error": f"Error decoding api.json: {str(e)}"}
+    except Exception as e:
+        print(f"get_api_commands_resource: Unexpected exception: {e}", file=sys.stderr)
+        return {"error": f"An unexpected error occurred while reading api.json: {str(e)}"}
+
+async def get_schema_json_resource():
+    """
+    Reads and returns the content of schema.json.
+    """
+    print("get_schema_json_resource: Entered function", file=sys.stderr)
+    try:
+        print(f"get_schema_json_resource: Attempting to read {SCHEMA_JSON_PATH}", file=sys.stderr)
+        def read_file_sync():
+            with open(SCHEMA_JSON_PATH, 'r') as f:
+                return json.load(f)
+
+        data = await asyncio.to_thread(read_file_sync)
+        print("get_schema_json_resource: Successfully read and parsed schema.json", file=sys.stderr)
+        return data
+    except FileNotFoundError:
+        print(f"get_schema_json_resource: Error - schema.json not found at {SCHEMA_JSON_PATH}", file=sys.stderr)
+        return {"error": f"schema.json not found at {SCHEMA_JSON_PATH}"}
+    except json.JSONDecodeError as e:
+        print(f"get_schema_json_resource: Error decoding schema.json: {e}", file=sys.stderr)
+        return {"error": f"Error decoding schema.json: {str(e)}"}
+    except Exception as e:
+        print(f"get_schema_json_resource: Unexpected exception: {e}", file=sys.stderr)
+        return {"error": f"An unexpected error occurred while reading schema.json: {str(e)}"}

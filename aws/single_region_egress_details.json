@@ -1,0 +1,9 @@
+{
+    "instance_id": "i-0c2e67da8b2df8e77",
+    "prefix": "test-sre-create-462e",
+    "region_id": "us-west-1",
+    "sg_group_name": "test-sre-create-462e_ovpn_egress_sg",
+    "vpc_id": "vpc-060b3c98ea42111a8",
+    "instance_base_name": "ovpn_egress",
+    "subnet_id_to_delete": "subnet-068221860462a7f0f"
+}

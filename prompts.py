@@ -1,4 +1,5 @@
 import mcp.types as types
+import sys # For logging to stderr
 
 # Source data for the guidelines
 CONNEXA_API_GUIDELINES = [
@@ -65,33 +66,67 @@ CONNEXA_API_GUIDELINES = [
     {
         "id": "cyber_shield_domain_filtering_api",
         "text": "The API supports Cyber Shield for DNS-based domain filtering, allowing management of block lists and allow lists (e.g., blockListAddDomains, allowListRemoveDomains). This provides an additional layer of security by controlling access to websites based on their domain names."
+    },
+    {
+        "id": "connector_ambiguity_clarification",
+        "text": "The term 'Connector' in OpenVPN Connexa can be ambiguous. It can refer to: 1. Network Connectors (API: /api/v1/networks/connectors/{id}/profile) which link entire networks. 2. Host Connectors (API: /api/v1/hosts/connectors/{id}/profile) which link individual hosts. 3. Device Profiles (API: /api/v1/devices/{id}/profile) which are for user devices but are sometimes colloquially referred to as connectors. When dealing with 'connectors', verify which type is being referenced, as the API endpoints and required parameters (e.g., user_id, region_id for device profiles) differ."
+    },
+    {
+        "id": "device_vs_connector_clarification",
+        "text": "It's important to distinguish between 'Devices' and 'Connectors' in OpenVPN Connexa: 'Devices' are associated with individual Users (e.g., a user's laptop or phone) and are managed via user-centric API endpoints (e.g., /api/v1/devices). 'Connectors' are associated with 'Networks' or 'Hosts' and link entire private networks or specific servers to Cloud Connexa (e.g., /api/v1/networks/connectors). Deleting a 'device' removes a user's personal endpoint, while deleting a 'connector' removes a network-level link."
+    },
+    {
+        "id": "list_network_connectors",
+        "text": "Network connectors are associated with Networks and provide egress points. You can list existing network connectors using the API endpoint /api/v1/networks/{networkId}/connectors (GET action), replacing {networkId} with the ID of the network."
+    },
+    {
+        "id": "network_egress_setting",
+        "text": "For a Network to support internet connectivity through a connector (act as an egress point), the 'egress' property of the network must be set to true. This can be configured when creating or updating a network using the API endpoint /api/v1/networks/{id} (POST or PUT action)."
+    },
+    {
+        "id": "create_network_connector",
+        "text": "To create a network connector, use the API endpoint /api/v1/networks/connectors (POST action). The network ID should be provided as a query parameter (e.g., /api/v1/networks/connectors?networkId={networkId}), and the connector details (name, vpnRegionId) should be included in the request body."
+    },
+    {
+        "id": "deploy_connector_instance",
+        "text": "To deploy a connector instance to AWS, use the 'Provision_Connector_tool'. This tool takes the connector's ID (GUID) and the desired AWS region ID (e.g., 'us-west-1'). It will use the provided connector ID to fetch its OpenVPN profile and then use that information to provision an AWS EC2 instance configured as the connector."
     }
 ]
 
-_formatted_guidelines_text = "OpenVPN Connexa API Interaction Guidelines:\n\n" + \
-                             "\n\n".join([f"- {p['id']}: {p['text']}" for p in CONNEXA_API_GUIDELINES])
-
 async def list_guideline_prompts() -> list[types.Prompt]:
     """Lists available guideline prompts for OpenVPN Connexa."""
-    return [
-        types.Prompt(
-            name="connexa_api_guidelines",
-            description="Provides a set of guidelines and important concepts for interacting with the OpenVPN Connexa API via MCP tools.",
-            arguments=[], # This prompt takes no arguments
+    print("DEBUG: list_guideline_prompts called", file=sys.stderr) # ADDED DEBUG
+    prompts = []
+    for guideline in CONNEXA_API_GUIDELINES:
+        # Use the first 100 chars of text for description, or full text if shorter
+        description_text = guideline['text']
+        if len(description_text) > 100:
+            description_text = description_text[:97] + "..."
+        
+        prompts.append(
+            types.Prompt(
+                name=guideline['id'], # Use the guideline ID as the prompt name
+                description=description_text, # Use full/partial text as description
+                arguments=[], # Assuming these prompts don't take arguments
+            )
         )
-    ]
+    # ADDED DEBUG: Log the prompts being returned
+    print(f"DEBUG: list_guideline_prompts returning {len(prompts)} prompts:", file=sys.stderr)
+    for p in prompts:
+        print(f"DEBUG:   Prompt name='{p.name}', description='{p.description[:50]}...'", file=sys.stderr)
+    return prompts
 
 async def get_guideline_prompt(name: str, arguments: dict[str, str] | None = None) -> types.GetPromptResult:
-    """Retrieves the specified guideline prompt."""
-    if name == "connexa_api_guidelines":
-        return types.GetPromptResult(
-            messages=[
-                types.PromptMessage(
-                    role="user", # Changed to "user" as "system" might not be a valid Role for PromptMessage
-                    content=types.TextContent(type="text", text=_formatted_guidelines_text)
-                )
-            ],
-            # No specific model or parameters needed for this system message prompt
-        )
-    else:
-        raise ValueError(f"Unknown prompt name: {name}")
+    """Retrieves the specified guideline prompt by its ID."""
+    for guideline in CONNEXA_API_GUIDELINES:
+        if guideline['id'] == name:
+            return types.GetPromptResult(
+                messages=[
+                    types.PromptMessage(
+                        role="user", 
+                        content=types.TextContent(type="text", text=guideline['text'])
+                    )
+                ]
+            )
+    
+    raise ValueError(f"Unknown prompt name: {name}")
