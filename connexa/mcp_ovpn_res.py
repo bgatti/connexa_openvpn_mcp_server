@@ -4,6 +4,8 @@ import json # Added for JSON parsing
 import os # Added for path manipulation
 from mcp.server.fastmcp import FastMCP
 from .group_tools import get_user_groups, get_user_group # Import both functions
+# Import the global selected object instance
+from .selected_object import CURRENT_SELECTED_OBJECT
 
 async def get_user_groups_resource(): # Removed mcp: FastMCP parameter
     """
@@ -44,7 +46,8 @@ async def get_user_groups_resource(): # Removed mcp: FastMCP parameter
 import httpx # For making API calls
 from mcp.shared.exceptions import McpError # For error handling
 from mcp.types import ErrorData, INTERNAL_ERROR # For error handling
-from ..user_tools import get_users, get_async_client # For the new resource and API client
+# Change relative import to absolute import
+from connexa_openvpn_mcp_server import user_tools # For the new resource and API client
 
 # Removed: from .region_tools import get_vpn_regions
 
@@ -59,8 +62,9 @@ async def get_users_with_group_info_resource(): # Removed mcp: FastMCP parameter
         # get_users is still synchronous, so it needs to_thread
         # OR user_tools.py also needs to be refactored for get_users to be async
         # For now, assuming get_users in user_tools.py is still sync
-        users_data = await asyncio.to_thread(get_users, page=0, size=100) 
-        print(f"get_users_with_group_info_resource: get_users returned: {type(users_data)}", file=sys.stderr)
+        # Use the function from the imported module
+        users_data = await asyncio.to_thread(user_tools.get_users, page=0, size=100) 
+        print(f"get_users_with_group_info_resource: user_tools.get_users returned: {type(users_data)}", file=sys.stderr)
 
         if users_data is None:
             print("get_users_with_group_info_resource: users_data is None", file=sys.stderr)
@@ -112,25 +116,21 @@ async def get_users_with_group_info_resource(): # Removed mcp: FastMCP parameter
         # mcp.logger.error(f"Error in get_users_with_group_info_resource: {e}", exc_info=True)
         return {"error": f"An error occurred while fetching users with group info: {str(e)}"}
 
-async def get_current_selection_resource(): # Removed mcp: FastMCP parameter, Uncommented
+async def get_current_selection_resource():
     """
     Returns the currently selected item in the MCP server's state.
     """
     print("get_current_selection_resource: Entered function", file=sys.stderr)
     try:
-        # The 'mcp' instance is the FastMCP app itself.
-        # current_selection was added as a dynamic attribute to it.
-        # This will currently fail as 'mcp' is not defined in this scope.
-        # This resource needs to be re-thought if app state access is needed without mcp param.
-        # For now, to allow server startup, let's return a placeholder or error.
-        # if hasattr(mcp, 'current_selection'): 
-        #     return mcp.current_selection
-        # else:
-        print("get_current_selection_resource: Returning placeholder/error", file=sys.stderr)
-        return {"error": "Current selection state is not directly accessible in this version of the resource."}
+        # Access the global CURRENT_SELECTED_OBJECT instance
+        selected_info = CURRENT_SELECTED_OBJECT.get_selected_object_info()
+        print(f"get_current_selection_resource: Returning selected_info: {selected_info}", file=sys.stderr)
+        return selected_info
     except Exception as e:
         print(f"get_current_selection_resource: Exception: {e}", file=sys.stderr)
-        # mcp.logger.error(f"Error in get_current_selection_resource: {e}", exc_info=True)
+        # Log the exception, e.g., using mcp.logger if available and configured
+        # For now, just returning the error string
+        # Consider using mcp.logger.error(f"Error in get_current_selection_resource: {e}", exc_info=True)
         return {"error": f"An error occurred while fetching current selection: {str(e)}"}
 
 async def get_regions_resource():
@@ -140,7 +140,8 @@ async def get_regions_resource():
     print("get_regions_resource: Entered function", file=sys.stderr)
     client: httpx.AsyncClient | None = None
     try:
-        client = await get_async_client()
+        # Use the function from the imported module
+        client = await user_tools.get_async_client()
         url = "/api/v1/regions" # Relative URL as base_url is in client
         print(f"get_regions_resource: Requesting URL: {client.base_url}{url}", file=sys.stderr)
         

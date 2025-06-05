@@ -72,11 +72,28 @@ app = FastMCP(
 # app.current_selection = {"type": None, "id": None, "name": None, "data": None} # Temporarily commented out
 logger.info(f"FastMCP application '{app.name}' created at module level.")
 
+# Import for dynamic tools and selected object
+from .connexa.selected_object import CURRENT_SELECTED_OBJECT
+# from .connexa.dynamic_tool_manager import register_selection_listener, get_updated_tool_descriptions # Removed as part of refactoring
+
+# Register the listener for dynamic tool updates
+# The dynamic_tool_manager and its listener registration are being refactored/removed.
+# The new approach uses generic tools that internally adapt to the selected object.
+# try:
+#     register_selection_listener(CURRENT_SELECTED_OBJECT)
+#     logger.info("Successfully registered selection listener with CURRENT_SELECTED_OBJECT.")
+# except Exception as e_listener:
+#     logger.error(f"Failed to register selection listener: {e_listener}", exc_info=True)
+
+
 # --- Register Prompts using @app.prompt() decorator style ---
 logger.info("Registering prompts dynamically...")
+loop_count = 0
 for guideline_data in CONNEXA_API_GUIDELINES:
+    loop_count += 1
     guideline_id = guideline_data['id']
     guideline_text = guideline_data['text']
+    logger.info(f"Loop iteration {loop_count}, attempting to register prompt_id: {guideline_id}")
 
     # Define the actual function that will be decorated
     # Use a default argument to correctly capture the guideline_text for each iteration
@@ -97,16 +114,14 @@ for guideline_data in CONNEXA_API_GUIDELINES:
     # def some_name(): ...
     # So, we call app.prompt() to get the decorator, then call the decorator with the function
     try:
+        logger.info(f"Before decorating prompt_id: {guideline_id}")
         decorated_func = app.prompt()(_create_prompt_func)
-        # Store the decorated function back if needed, or ensure it's registered.
-        # Often, the act of decorating registers it.
-        # To be safe and explicit, can assign it to a unique name on app or a dict if needed,
-        # but typically decorator application handles registration.
-        logger.info(f"Registered prompt: {guideline_id}")
+        logger.info(f"After decorating, successfully registered prompt: {guideline_id}")
     except Exception as e_prompt:
         logger.error(f"Failed to register prompt {guideline_id}: {e_prompt}", exc_info=True)
 
-logger.info(f"{len(CONNEXA_API_GUIDELINES)} prompts registration attempted.")
+logger.info(f"Prompt registration loop completed after {loop_count} iterations.")
+logger.info(f"Attempting to log count of CONNEXA_API_GUIDELINES: {len(CONNEXA_API_GUIDELINES)} prompts registration attempted.")
 
 # --- Import Tool Modules and Register Tools/Resources on the module-level 'app' ---
 try:
@@ -119,6 +134,8 @@ try:
     from .connexa import connector_tools # Import the connector_tools module
     from .connexa import mcp_ovpn_res # Contains resource functions
     from .connexa import connexa_api # Import the new connexa_api module
+    # selected_object is already imported above for CURRENT_SELECTED_OBJECT, but we need the module itself too.
+    from .connexa import selected_object # Ensure the module is imported for app.tool()
     # api_tools.py is still imported for now, might be refactored/removed later if schema tool is also moved or not used.
     from . import server_tools as aws_server_tools # Import AWS server tools
     logger.info("Tool modules imported (including connexa_api.py, mcp_ovpn_res.py, and aws_server_tools.py for new resources and tools).")
@@ -182,7 +199,9 @@ try:
     app.resource(uri="mcp://resources/api_commands")(mcp_ovpn_res.get_api_commands_resource)
     # Register the new schema resource (pointing to schema.json content)
     app.resource(uri="mcp://resources/schema")(mcp_ovpn_res.get_schema_json_resource)
-    logger.info("Resources registered (including api_commands and schema).")
+    # Register resource for active dynamic tools - Removed as part of dynamic tool manager refactoring
+    # app.resource(uri="mcp://resources/active_dynamic_tools")(get_updated_tool_descriptions)
+    logger.info("Resources registered (including api_commands and schema).") # Updated log message
 
     logger.info("Registering Custom API tools (from connexa_api.py)...")
     app.tool()(connexa_api.call_api)
@@ -208,6 +227,10 @@ try:
     app.tool()(connector_tools.manage_connector) # Register using the imported module
     app.tool()(connector_tools.create_network_connector) # Register the new create_network_connector tool
     logger.info("Connector tools registered.")
+
+    logger.info("Registering Selection tools...")
+    app.tool()(selected_object.select_object_tool)
+    logger.info("Selection tools registered.")
 
     logger.info("Registering AWS Resources...")
     app.resource(uri="mcp://resources/aws_regions")(aws_server_tools.get_available_aws_regions_resource)
