@@ -6,7 +6,7 @@ import requests
 import httpx # Added for async client
 
 # Import from the new config manager
-from .connexa import config_manager # Changed to relative import
+from connexa import config_manager # Changed to relative import
 from mcp.shared.exceptions import McpError
 from mcp.types import ErrorData, INTERNAL_ERROR, INVALID_PARAMS # Assuming these codes are relevant
 

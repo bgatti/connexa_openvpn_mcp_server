@@ -77,22 +77,21 @@ async def main():
             logger.info("Result from 'validate_credentials':")
             logger.info(tool_result)
 
-            # New steps requested by the user
-            logger.info("Attempting to call 'select_object' for network 'california'...")
-            select_object_payload = {"object_type": "network", "name_search": "california"}
-            select_object_result = await session.call_tool("select_object_tool", select_object_payload) # Corrected tool name
-            logger.info("Result from 'select_object':")
-            logger.info(select_object_result)
+            # Demonstrate selecting base objects
+            base_objects = ["network", "user", "user_group"]
+            for obj_type in base_objects:
+                logger.info(f"Attempting to call 'select_object_tool' for object type: {obj_type}")
+                select_object_payload = {"object_type": obj_type}
+                select_object_result = await session.call_tool("select_object_tool", select_object_payload)
+                logger.info(f"Result from 'select_object_tool' for {obj_type}:")
+                logger.info(select_object_result)
 
-            # Get current selection resource
+            # Get current selection resource (after selections)
             logger.info("Attempting to read 'mcp://resources/current_selection' resource...")
             current_selection_resource_pydantic_uri = AnyUrl("mcp://resources/current_selection")
             current_selection_result = await session.read_resource(current_selection_resource_pydantic_uri)
             logger.info(f"Result from reading '{current_selection_resource_pydantic_uri}':")
-            # The result of read_resource is typically the content of the resource directly.
-            # If it's bytes, we might need to decode. Assuming it's text or JSON-like for now.
             logger.info(current_selection_result)
-
 
             logger.info("Listing available tools...")
             list_tools_result = await session.list_tools()
@@ -101,8 +100,6 @@ async def main():
 
             logger.info("Listing available resources (including dynamic)...")
             list_resources_result = await session.list_resources()
-            # Resources usually have a 'uri'. Let's try 'name' first, common for display.
-            # If Resource objects have 'name', this will work. Otherwise, we might need 'uri'.
             resource_names = [resource.name if hasattr(resource, 'name') else resource.uri for resource in list_resources_result.resources]
             logger.info(f"Available resources: {resource_names}")
 

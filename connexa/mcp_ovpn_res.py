@@ -5,7 +5,7 @@ import os # Added for path manipulation
 from mcp.server.fastmcp import FastMCP
 from .group_tools import get_user_groups, get_user_group # Import both functions
 # Import the global selected object instance
-from .selected_object import CURRENT_SELECTED_OBJECT
+from .selected_object import CURRENT_SELECTED_OBJECT, _get_swagger_content # Import swagger loader
 
 async def get_user_groups_resource(): # Removed mcp: FastMCP parameter
     """
@@ -47,7 +47,7 @@ import httpx # For making API calls
 from mcp.shared.exceptions import McpError # For error handling
 from mcp.types import ErrorData, INTERNAL_ERROR # For error handling
 # Change relative import to absolute import
-from connexa_openvpn_mcp_server import user_tools # For the new resource and API client
+#from connexa_openvpn_mcp_server import user_tools # For the new resource and API client
 
 # Removed: from .region_tools import get_vpn_regions
 
@@ -116,22 +116,22 @@ async def get_users_with_group_info_resource(): # Removed mcp: FastMCP parameter
         # mcp.logger.error(f"Error in get_users_with_group_info_resource: {e}", exc_info=True)
         return {"error": f"An error occurred while fetching users with group info: {str(e)}"}
 
-async def fetch_current_selection_data(): # Renamed function
+def get_current_selection_data(): # Renamed function, made synchronous
     """
     Returns the currently selected item in the MCP server's state.
     """
-    print("fetch_current_selection_data: Entered function", file=sys.stderr) # Updated print
+    print("get_current_selection_data: Entered function (synchronous)", file=sys.stderr) # Updated print
     try:
         # Access the global CURRENT_SELECTED_OBJECT instance
         selected_info = CURRENT_SELECTED_OBJECT.get_selected_object_info()
-        print(f"fetch_current_selection_data: Returning selected_info: {selected_info}", file=sys.stderr) # Updated print
+        print(f"get_current_selection_data: Returning selected_info: {selected_info}", file=sys.stderr) # Updated print
         return selected_info
     except Exception as e:
-        print(f"fetch_current_selection_data: Exception: {e}", file=sys.stderr) # Updated print
+        print(f"get_current_selection_data: Exception: {e}", file=sys.stderr) # Updated print
         # Log the exception, e.g., using mcp.logger if available and configured
         # For now, just returning the error string
         # Consider using mcp.logger.error(f"Error in fetch_current_selection_data: {e}", exc_info=True)
-        return {"error": f"An error occurred while fetching current selection: {str(e)}"}
+        return {"error": f"An error occurred while getting current selection: {str(e)}"}
 
 async def get_regions_resource():
     """
@@ -323,3 +323,64 @@ async def get_schema_json_resource():
     except Exception as e:
         print(f"get_schema_json_resource: Unexpected exception: {e}", file=sys.stderr)
         return {"error": f"An unexpected error occurred while reading schema.json: {str(e)}"}
+
+async def get_creation_schema_resource(object_type: str | None = None):
+    """
+    Retrieves the JSON schema for creating a given object type from swagger.json.
+    The object_type should correspond to the entity being created, e.g., "Network", "UserGroup".
+    If object_type is None, it indicates an issue or a request for general schema info.
+    """
+    print(f"get_creation_schema_resource: Entered for object_type='{object_type}'", file=sys.stderr)
+
+    # Mapping from a simplified object_type to the specific CreateRequest schema name in swagger.json
+    # This needs to be maintained and match the object types used by the client/agent.
+    schema_name_map = {
+        "Network": "NetworkCreateRequest",
+        "NetworkConnector": "NetworkConnectorRequest", # Used for POST /api/v1/networks/connectors
+        "UserGroup": "UserGroupRequest",             # Used for POST /api/v1/user-groups
+        "Host": "HostCreateRequest",
+        "HostConnector": "HostConnectorRequest",       # Used for POST /api/v1/hosts/connectors
+        "Device": "DeviceRequest",                   # Used for POST /api/v1/devices
+        "DnsRecord": "DnsRecordRequest",             # Used for POST /api/v1/dns-records
+        "AccessGroup": "AccessGroupRequest",
+        "LocationContext": "LocationContextRequest",
+        "DevicePosture": "DevicePostureRequest",
+        # Add other mappings as needed, e.g., "User": "UserCreateRequest"
+    }
+
+    if object_type is None:
+        error_msg = "An 'object_type' must be specified to retrieve a creation schema."
+        print(f"get_creation_schema_resource: {error_msg}", file=sys.stderr)
+        return {"error": error_msg, "available_object_types": list(schema_name_map.keys())}
+
+    swagger_data = _get_swagger_content() # Uses the cached loader from selected_object
+
+    if not swagger_data or "components" not in swagger_data or "schemas" not in swagger_data["components"]:
+        error_msg = "Swagger content is missing, malformed, or could not be loaded."
+        print(f"get_creation_schema_resource: {error_msg}", file=sys.stderr)
+        return {"error": error_msg}
+
+    schemas = swagger_data["components"]["schemas"]
+    
+    target_schema_name = schema_name_map.get(object_type) # object_type is now guaranteed not to be None here
+
+    if not target_schema_name:
+        error_msg = f"No creation schema mapping found for object_type: '{object_type}'. This should not happen if object_type was validated against available_object_types."
+        print(f"get_creation_schema_resource: {error_msg}", file=sys.stderr)
+        return {"error": error_msg, "available_types": list(schema_name_map.keys())}
+
+    if target_schema_name in schemas:
+        print(f"get_creation_schema_resource: Found schema '{target_schema_name}' for object_type '{object_type}'.", file=sys.stderr)
+        return {"object_type": object_type, "schema_name": target_schema_name, "schema": schemas[target_schema_name]}
+    else:
+        error_msg = f"Schema '{target_schema_name}' (for object_type '{object_type}') not found in swagger components/schemas."
+        print(f"get_creation_schema_resource: {error_msg}", file=sys.stderr)
+        return {"error": error_msg}
+
+async def get_creation_schema_resource_base():
+    """
+    Handler for the creation_schema resource when no object_type is specified in the URI.
+    Delegates to get_creation_schema_resource with object_type=None.
+    """
+    print("get_creation_schema_resource_base: Entered, calling get_creation_schema_resource(object_type=None)", file=sys.stderr)
+    return await get_creation_schema_resource(object_type=None)

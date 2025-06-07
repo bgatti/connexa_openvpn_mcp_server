@@ -131,37 +131,116 @@ class SelectedObject:
 
     def get_available_commands(self) -> List[Dict[str, Any]]:
         """
-        Returns a list of available commands for the currently selected object type.
-        This will be expanded to fetch commands from dynamic_*.py modules.
+        Returns a list of available commands for the currently selected object type,
+        or global creation commands if no object is selected.
         """
         commands = []
-        if not self.object_type or not self.object_id:
+
+        # Global "Create" commands if nothing is selected
+        if not self.object_type:
+            commands.extend([
+                {
+                    "name": "create_network",
+                    "description": "Create a new Network.",
+                    "tool_name": "create_network_tool", # Assumes tool is registered with this name
+                    "requires_args": True # Indicates that the tool needs arguments
+                },
+                {
+                    "name": "create_host",
+                    "description": "Create a new Host.",
+                    "tool_name": "create_host_tool",
+                    "requires_args": True
+                },
+                {
+                    "name": "create_user_group",
+                    "description": "Create a new User Group.",
+                    "tool_name": "create_user_group_tool",
+                    "requires_args": True
+                },
+                {
+                    "name": "create_dns_record",
+                    "description": "Create a new DNS Record.",
+                    "tool_name": "create_dns_record_tool",
+                    "requires_args": True
+                },
+                {
+                    "name": "create_access_group",
+                    "description": "Create a new Access Group.",
+                    "tool_name": "create_access_group_tool",
+                    "requires_args": True
+                },
+                {
+                    "name": "create_location_context_policy",
+                    "description": "Create a new Location Context Policy.",
+                    "tool_name": "create_location_context_tool",
+                    "requires_args": True
+                },
+                {
+                    "name": "create_device_posture_policy",
+                    "description": "Create a new Device Posture Policy.",
+                    "tool_name": "create_device_posture_tool",
+                    "requires_args": True
+                }
+                # Note: create_user is not added here as it's typically part of user_tools.py
+                # and might have a different flow (e.g. inviting vs direct creation).
+                # The existing create_user tool in user_tools.py can be used.
+            ])
             return commands
 
-        # Common commands
+        # Commands for when an object IS selected
+        if not self.object_id: # Should not happen if object_type is set, but as a safeguard
+            return commands
+            
+        # Common commands for selected objects
         commands.append({
             "name": "update",
             "description": f"Initiate update for the selected {self.object_type} '{self.object_name}'. Provides current data and schema.",
-            "requires_args": False,
-            "special_handling": "update_flow"
+            "requires_args": False, # This command itself doesn't take args, it starts a flow
+            "special_handling": "update_flow" # Indicates special handling by act_on_selected_object
         })
         
+        # Define delete paths more comprehensively
+        # TODO: Ensure these paths are accurate and cover host connectors too.
+        # Connector delete path might depend on whether it's a network or host connector.
+        # The current find_connector_path_by_id in connexa_api.py might help resolve this.
+        # For now, this is a simplified map.
         delete_path_map = {
             "network": "/api/v1/networks/{id}",
-            "connector": "/api/v1/networks/connectors/{id}", # Assuming network connector
-            # "user": "/api/v1/users/{id}",
-            # "usergroup": "/api/v1/user-groups/{id}",
+            "connector": "/api/v1/networks/connectors/{id}", # Defaulting to network connector path
+            "user": "/api/v1/users/{id}",
+            "usergroup": "/api/v1/user-groups/{id}",
+            "host": "/api/v1/hosts/{id}",
+            "dns-record": "/api/v1/dns-records/{id}",
+            "access-group": "/api/v1/access-groups/{id}",
+            "location-context": "/api/v1/location-contexts/{id}",
+            "device-posture": "/api/v1/device-postures/{id}",
+            # Device delete needs userId as a query param: /api/v1/devices/{id}?userId={userId}
+            # This simple map won't handle that directly without more logic.
         }
-        if self.object_type in delete_path_map:
+        if self.object_type in delete_path_map and self.object_type != "device": # Device delete is special
             commands.append({
                 "name": "delete",
                 "description": f"Delete the selected {self.object_type} '{self.object_name}'. This action is permanent.",
-                "method": "delete",
-                "path_template": delete_path_map[self.object_type],
-                "requires_args": False
+                "method": "delete", # HTTP method
+                "path_template": delete_path_map[self.object_type], # Path template for call_api
+                "requires_args": False # Delete usually doesn't take a request body
+            })
+        elif self.object_type == "device" and self.details.get("userId"):
+             # Special handling for device delete if userId is available in details
+            commands.append({
+                "name": "delete_device", # More specific name
+                "description": f"Delete the selected device '{self.object_name}'. This action is permanent.",
+                "tool_name": "delete_device_record", # Assumes a tool like this exists or will be created
+                                                     # from existing MCP server tools (it does)
+                "requires_args": True, # Will need device_id (from self.object_id) and user_id
+                "pre_filled_args": {
+                    "device_id": self.object_id,
+                    "user_id": self.details.get("userId")
+                }
             })
 
-        # Object-specific commands are now loaded from respective dynamic_*.py modules
+
+        # Object-specific "get" commands (from dynamic_*.py) and "Create" sub-object commands
         if self.object_type == "network":
             if self.object_id and self.object_name and self.details:
                 network_commands = get_network_command_definitions(
@@ -170,8 +249,17 @@ class SelectedObject:
                     network_details=self.details
                 )
                 commands.extend(network_commands)
+                # Add command to create a connector within this network
+                commands.append({
+                    "name": "create_network_connector",
+                    "description": f"Create a new connector in the selected network '{self.object_name}'.",
+                    "tool_name": "create_network_connector_tool",
+                    "requires_args": True, # name, vpn_region_id, etc.
+                    "pre_filled_args": {"network_id": self.object_id}
+                })
         
         elif self.object_type == "connector":
+            # Connectors have their own specific commands (profile, etc.)
             if self.object_id and self.object_name and self.details:
                 connector_commands = get_connector_command_definitions(
                     connector_id=self.object_id,
@@ -179,11 +267,42 @@ class SelectedObject:
                     connector_details=self.details
                 )
                 commands.extend(connector_commands)
+                # Note: The delete path for a connector might need to know if it's a host or network connector.
+                # The generic delete_path_map uses /api/v1/networks/connectors/{id}.
+                # If it's a host connector, this would be wrong.
+                # This might require enhancing the delete command definition or how it's processed.
+                # For now, relying on find_connector_path_by_id if manage_connector tool is used for delete.
         
-        # Add elif for other object types (e.g., user, group) here
-        # elif self.object_type == "user":
-        #     user_commands = get_user_command_definitions(...)
-        #     commands.extend(user_commands)
+        elif self.object_type == "host":
+            # Add command to create a connector within this host
+            commands.append({
+                "name": "create_host_connector",
+                "description": f"Create a new connector for the selected host '{self.object_name}'.",
+                "tool_name": "create_host_connector_tool",
+                "requires_args": True, # name, vpn_region_id, etc.
+                "pre_filled_args": {"host_id": self.object_id}
+            })
+            # Potentially add other host-specific commands if a dynamic_host.py existed
+
+        elif self.object_type == "user":
+            # Add command to create a device for this user
+            commands.append({
+                "name": "create_device_for_user",
+                "description": f"Create a new device for the selected user '{self.object_name}'.",
+                "tool_name": "create_device_tool",
+                "requires_args": True, # name, description, clientUUID
+                "pre_filled_args": {"user_id": self.object_id}
+            })
+            # Potentially add other user-specific commands (e.g., from a dynamic_user.py)
+            # The existing user_tools.py already provides get_user, create_user, update_user, delete_user.
+            # We might want to integrate them here or ensure they are discoverable.
+            # For example, the 'delete' command for a user is already covered by the generic delete_path_map.
+
+        # Fallback for other types, or if more specific commands are needed.
+        # This is where one might load commands from other dynamic_*.py modules.
+        # For example, if self.object_type == "usergroup":
+        #   group_commands = get_usergroup_command_definitions(...)
+        #   commands.extend(group_commands)
 
         return commands
 
@@ -337,173 +456,236 @@ def select_object_tool(object_type: str, name_search: Optional[str] = None, kwar
     """
     # Read CONNEXA_REGION inside the function so it can be patched for tests
     CONNEXA_REGION = os.getenv("CONNEXA_REGION", "us-west-1")
-    logger.info(f"select_object_tool called with object_type='{object_type}', name_search='{name_search}', kwargs={kwargs}, using CONNEXA_REGION='{CONNEXA_REGION}'")
-    
-    found_objects = []
-    selected_object_name = "None"
-    default_object_name = "Default" # Placeholder for actual default logic
-    default_object_id = None # Initialize default_object_id
-    default_details = {} # Initialize default_details
+    logger.info(f"select_object_tool called with object_type='{object_type}', name_search='{name_search}', kwargs='{kwargs}', using CONNEXA_REGION='{CONNEXA_REGION}'")
 
+    OBJECT_TYPE_CONFIG = {
+        "network": {
+            "path": "/api/v1/networks",
+            "parent_type": None,
+            "parent_id_param_name": None,
+            "default_criteria_key": "region", # Field in the item to check against CONNEXA_REGION
+            "id_field": "id",
+            "name_field": "name"
+        },
+        "user": {
+            "path": "/api/v1/users",
+            "parent_type": None,
+            "parent_id_param_name": None,
+            "id_field": "id",
+            "name_field": "username" # Users often use 'username' or 'email' as a primary display name
+        },
+        "usergroup": {
+            "path": "/api/v1/user-groups",
+            "parent_type": None,
+            "parent_id_param_name": None,
+            "id_field": "id",
+            "name_field": "name"
+        },
+        "connector": { # Network Connectors
+            "path": "/api/v1/networks/connectors",
+            "parent_type": "network",
+            "parent_id_param_name": "networkId", # Query parameter
+            "id_field": "id",
+            "name_field": "name"
+        },
+        "device": {
+            "path": "/api/v1/devices",
+            "parent_type": "user", # Optional parent for filtering
+            "parent_id_param_name": "userId", # Query parameter
+            "id_field": "id",
+            "name_field": "name"
+        },
+        "host": {
+            "path": "/api/v1/hosts",
+            "parent_type": None,
+            "parent_id_param_name": None,
+            "id_field": "id",
+            "name_field": "name"
+        },
+        "dns-record": {
+            "path": "/api/v1/dns-records",
+            "parent_type": None,
+            "parent_id_param_name": None,
+            "id_field": "id",
+            "name_field": "domain"
+        }
+        # Add other types like 'access-group', 'location-context', etc. as needed
+    }
 
-    if object_type.lower() == "network":
-        try:
-            logger.info("Attempting to fetch networks using call_api...")
-            networks_response = call_api(action="get", path="/api/v1/networks")
-            logger.info(f"call_api response for networks: {networks_response}")
-            
-            if not isinstance(networks_response, dict) or \
-               networks_response.get("status") != 200:
-                error_detail = f"API call failed or returned non-200 status. Full response: {networks_response}"
-                logger.error(f"Error fetching networks: {error_detail}")
-                CURRENT_SELECTED_OBJECT.clear()
-                return [], f"Error fetching networks: {networks_response.get('message', 'Unknown API error')}. Details: {error_detail}"
-
-            # Handle potential nested 'content' key in the response data
-            response_data = networks_response.get("data", {})
-            if isinstance(response_data, dict) and isinstance(response_data.get("content"), list):
-                networks: List[Dict[str, Any]] = response_data["content"]
-                logger.info(f"Successfully fetched {len(networks)} network(s) from 'data.content'.")
-            elif isinstance(response_data, list):
-                 networks: List[Dict[str, Any]] = response_data
-                 logger.info(f"Successfully fetched {len(networks)} network(s) directly from 'data'.")
-            else:
-                error_detail = f"API response data is not a list or does not contain a 'content' list. Data type: {type(response_data)}. Full response: {networks_response}"
-                logger.error(f"Error fetching networks: {error_detail}")
-                CURRENT_SELECTED_OBJECT.clear()
-                return [], f"Error fetching networks: Unexpected data format. Details: {error_detail}"
-
-
-            if not networks:
-                logger.warning("No networks found from API.")
-                CURRENT_SELECTED_OBJECT.clear()
-                return ["No networks found."], "No networks available to select."
-
-            # Determine default network
-            logger.info(f"Determining default network. CONNEXA_REGION: {CONNEXA_REGION}")
-            default_network_candidates = [n for n in networks if n.get('region') == CONNEXA_REGION]
-            if default_network_candidates:
-                default_object_name = default_network_candidates[0].get('name', 'Unknown Default Network')
-                default_object_id = default_network_candidates[0].get('id')
-                default_details = default_network_candidates[0]
-                logger.info(f"Default network candidate from region '{CONNEXA_REGION}': {default_object_name} (ID: {default_object_id})")
-            elif networks: # Fallback if no network in default region
-                default_object_name = networks[0].get('name', 'Unknown Default Network')
-                default_object_id = networks[0].get('id')
-                default_details = networks[0]
-                logger.info(f"Default network fallback (first network): {default_object_name} (ID: {default_object_id})")
-            else: # Should not happen if 'if not networks:' check above is hit
-                logger.warning("No networks available to determine a default.")
-                default_object_name = "No Networks Found"
-                # default_object_id and default_details remain None/empty
-
-            # Parse kwargs string into a dictionary
-            filter_kwargs: Dict[str, Any] = {}
-            if kwargs:
-                try:
-                    filter_kwargs = json.loads(kwargs)
-                    if not isinstance(filter_kwargs, dict):
-                        logger.warning(f"kwargs parameter was not a valid JSON object string: {kwargs}")
-                        filter_kwargs = {} # Reset if not a dict
-                except json.JSONDecodeError:
-                    logger.warning(f"Could not decode kwargs JSON string: {kwargs}")
-                    filter_kwargs = {} # Reset on decode error
-
-            logger.info(f"Starting network filtering process. Total networks fetched: {len(networks)}")
-            logger.info(f"Filtering networks by name_search='{name_search}' and parsed filter_kwargs={filter_kwargs}")
-
-            for net in networks:
-                name_match = True
-                if name_search and name_search.lower() != "default":
-                    if name_search.lower() not in net.get("name", "").lower():
-                        name_match = False
-
-                if name_match:
-                    # Apply additional filters from filter_kwargs if any
-                    match_all_kwargs = True
-                    for key, value in filter_kwargs.items():
-                        # This is a simple exact match for now.
-                        # Could be extended for more complex queries (e.g. status="connected")
-                        # Ensure both network attribute value and filter value are strings for comparison
-                        net_value = net.get(key)
-                        if net_value is None: # Attribute not present in network object
-                            match_all_kwargs = False
-                            break
-                        if str(net_value).lower() != str(value).lower():
-                            match_all_kwargs = False
-                            break
-                    
-                    if match_all_kwargs:
-                        logger.info(f"Object matched filter criteria: {net.get('name', 'Unnamed')}")
-                        found_objects.append(net)
-
-            logger.info(f"Filtering complete. Found {len(found_objects)} network(s) after filtering.")
-
-            # If no name_search was provided, and no kwargs were provided, use all networks
-            if not name_search and not filter_kwargs:
-                 logger.info("No name_search or kwargs specified, using all fetched networks for potential selection.")
-                 found_objects = networks # Show all networks if no specific search
-                 logger.info(f"Found objects updated to all networks. Count: {len(found_objects)}")
-
-
-            # Prepare list of names for return
-            found_object_names = [obj.get("name", "Unnamed") for obj in found_objects]
-            logger.info(f"Names of found objects: {found_object_names}")
-
-            logger.info(f"Evaluating selection logic. name_search='{name_search}', len(found_objects)={len(found_objects)}")
-            if name_search and name_search.lower() != "default" and len(found_objects) == 1:
-                selected_item_details = found_objects[0] # This is the dict from API
-                selected_item_id = selected_item_details.get("id")
-                selected_item_name = selected_item_details.get("name", "Unnamed")
-                logger.info(f"Exactly one match found for search '{name_search}': Name='{selected_item_name}', ID='{selected_item_id}'.")
-                logger.info(f"Data for matched object '{selected_item_name}': {json.dumps(selected_item_details, indent=2)}")
-                
-                CURRENT_SELECTED_OBJECT.select(
-                    object_type="network",
-                    object_id=selected_item_id,
-                    object_name=selected_item_name,
-                    details=selected_item_details # Pass the full dict
-                )
-                selected_object_name = selected_item_name
-                logger.info(f"Final selected object (single match): {selected_object_name}")
-                return found_object_names, f"Selected Object is {selected_object_name}"
-            else:
-                logger.info(f"Default selection logic: name_search='{name_search}', num_found_objects={len(found_objects)}")
-                if name_search and name_search.lower() != "default" and len(found_objects) != 1:
-                    logger.info(f"Search for '{name_search}' yielded {len(found_objects)} results (not 1). Selecting default.")
-                
-                if default_object_id:
-                    logger.info(f"Selecting default network: Name='{default_object_name}', ID='{default_object_id}'")
-                    logger.info(f"Data for default object '{default_object_name}': {json.dumps(default_details, indent=2)}")
-                    CURRENT_SELECTED_OBJECT.select(
-                        object_type="network",
-                        object_id=default_object_id,
-                        object_name=default_object_name,
-                        details=default_details # Pass the full dict
-                    )
-                    selected_object_name = default_object_name
-                else:
-                    logger.warning("No default network could be determined or selected.")
-                    CURRENT_SELECTED_OBJECT.clear()
-                    selected_object_name = "No default network available."
-            
-            logger.info(f"Final selected object: {selected_object_name}")
-            logger.info("Returning from default selection block.")
-            return found_object_names, f"Selected Object is {selected_object_name}"
-
-        except Exception as e:
-            logger.error(f"Exception in select_object_tool (network): {str(e)}", exc_info=True)
-            CURRENT_SELECTED_OBJECT.clear()
-            # Return the full exception string to provide more details
-            return [], f"Error processing network selection: {str(e)}"
-            
-    # Add other object types (user, group) here later
-    # elif object_type.lower() == "user":
-    #     pass
-    # elif object_type.lower() == "usergroup":
-    #     pass
-    else:
+    obj_type_lower = object_type.lower()
+    if obj_type_lower not in OBJECT_TYPE_CONFIG:
         logger.warning(f"Unsupported object type: {object_type}. Clearing selection.")
         CURRENT_SELECTED_OBJECT.clear()
-        return [], f"Unsupported object type: {object_type}. Supported types: network."
+        supported_types = ", ".join(OBJECT_TYPE_CONFIG.keys())
+        return [], f"Unsupported object type: {object_type}. Supported types: {supported_types}."
 
+    config = OBJECT_TYPE_CONFIG[obj_type_lower]
+    api_path = config["path"]
+    api_params: Dict[str, Any] = {} # For query parameters
+
+    found_objects: List[Dict[str, Any]] = []
+    selected_object_name_final = "None" # Renamed to avoid conflict
+    default_object_name = "Default"
+    default_object_id = None
+    default_details: Dict[str, Any] = {}
+    
+    id_field = config["id_field"]
+    name_field = config["name_field"]
+
+    try:
+        # Handle parent object dependency
+        if config["parent_type"]:
+            parent_type_expected = config["parent_type"]
+            parent_id_param_name = config["parent_id_param_name"]
+            if not CURRENT_SELECTED_OBJECT.object_type or \
+               CURRENT_SELECTED_OBJECT.object_type.lower() != parent_type_expected or \
+               not CURRENT_SELECTED_OBJECT.object_id:
+                CURRENT_SELECTED_OBJECT.clear() # Clear selection if context is invalid for this search
+                return [], f"Must select a {parent_type_expected} before searching for a {obj_type_lower}."
+            
+            if parent_id_param_name: # Should always be true if parent_type is set
+                 api_params[parent_id_param_name] = CURRENT_SELECTED_OBJECT.object_id
+            logger.info(f"Searching for {obj_type_lower} under selected {parent_type_expected} ID: {CURRENT_SELECTED_OBJECT.object_id} using param {parent_id_param_name}")
+
+
+        logger.info(f"Attempting to fetch {obj_type_lower}(s) using call_api with path='{api_path}' and params='{api_params}'...")
+        api_response = call_api(action="get", path=api_path, params=api_params if api_params else None)
+        logger.info(f"call_api response for {obj_type_lower}(s): {api_response}")
+
+        if not isinstance(api_response, dict) or api_response.get("status") != 200:
+            error_detail = f"API call failed or returned non-200 status. Full response: {api_response}"
+            logger.error(f"Error fetching {obj_type_lower}(s): {error_detail}")
+            # Do not clear selection here, as the previous selection might still be valid
+            return [], f"Error fetching {obj_type_lower}(s): {api_response.get('message', 'Unknown API error')}. Details: {error_detail}"
+
+        response_data = api_response.get("data", {})
+        items_list: List[Dict[str, Any]] = []
+        if isinstance(response_data, dict) and isinstance(response_data.get("content"), list):
+            items_list = response_data["content"]
+            logger.info(f"Successfully fetched {len(items_list)} {obj_type_lower}(s) from 'data.content'.")
+        elif isinstance(response_data, list): # For APIs that return a list directly in 'data' (e.g. /api/v1/regions)
+            items_list = response_data
+            logger.info(f"Successfully fetched {len(items_list)} {obj_type_lower}(s) directly from 'data'.")
+        else:
+            error_detail = f"API response data for {obj_type_lower}(s) is not a list or does not contain a 'content' list. Data type: {type(response_data)}. Full response: {api_response}"
+            logger.error(f"Error fetching {obj_type_lower}(s): {error_detail}")
+            return [], f"Error fetching {obj_type_lower}(s): Unexpected data format. Details: {error_detail}"
+
+        if not items_list:
+            logger.warning(f"No {obj_type_lower}(s) found from API.")
+            # Don't clear selection, just report no items of this type found
+            return [f"No {obj_type_lower}(s) found."], f"No {obj_type_lower}(s) available to select."
+
+        # Determine default object
+        if obj_type_lower == "network" and config.get("default_criteria_key"):
+            default_criteria_key = config["default_criteria_key"]
+            logger.info(f"Determining default {obj_type_lower} using criteria key '{default_criteria_key}' and CONNEXA_REGION: {CONNEXA_REGION}")
+            default_candidates = [item for item in items_list if item.get(default_criteria_key) == CONNEXA_REGION]
+            if default_candidates:
+                default_details = default_candidates[0]
+            elif items_list: # Fallback if no item in default region
+                default_details = items_list[0]
+        elif items_list: # General default: first item
+             default_details = items_list[0]
+        
+        if default_details:
+            default_object_name = default_details.get(name_field, f'Unknown Default {obj_type_lower.capitalize()}')
+            default_object_id = default_details.get(id_field)
+            logger.info(f"Default {obj_type_lower} determined: {default_object_name} (ID: {default_object_id})")
+        else:
+            logger.warning(f"No {obj_type_lower}(s) available to determine a default.")
+            default_object_name = f"No {obj_type_lower.capitalize()}s Found"
+            # default_object_id remains None, default_details remains empty
+
+        filter_kwargs: Dict[str, Any] = {}
+        if kwargs:
+            try:
+                filter_kwargs = json.loads(kwargs)
+                if not isinstance(filter_kwargs, dict):
+                    logger.warning(f"kwargs parameter was not a valid JSON object string: {kwargs}")
+                    filter_kwargs = {}
+            except json.JSONDecodeError:
+                logger.warning(f"Could not decode kwargs JSON string: {kwargs}")
+                filter_kwargs = {}
+
+        logger.info(f"Starting {obj_type_lower} filtering. Total fetched: {len(items_list)}")
+        logger.info(f"Filtering by name_search='{name_search}' and parsed filter_kwargs={filter_kwargs}")
+
+        for item in items_list:
+            item_name_str = str(item.get(name_field, "")).lower()
+            name_match = True
+            if name_search and name_search.lower() != "default":
+                if name_search.lower() not in item_name_str:
+                    name_match = False
+            
+            if name_match:
+                match_all_kwargs = True
+                for key, value in filter_kwargs.items():
+                    item_value = item.get(key)
+                    if item_value is None:
+                        match_all_kwargs = False
+                        break
+                    if str(item_value).lower() != str(value).lower():
+                        match_all_kwargs = False
+                        break
+                
+                if match_all_kwargs:
+                    logger.info(f"{obj_type_lower.capitalize()} matched filter criteria: {item.get(name_field, 'Unnamed')}")
+                    found_objects.append(item)
+        
+        logger.info(f"Filtering complete. Found {len(found_objects)} {obj_type_lower}(s) after filtering.")
+
+        if not name_search and not filter_kwargs:
+            logger.info(f"No name_search or kwargs specified, using all fetched {obj_type_lower}(s) for potential selection.")
+            found_objects = items_list
+            logger.info(f"Found objects updated to all {obj_type_lower}(s). Count: {len(found_objects)}")
+
+        found_object_names = [obj.get(name_field, "Unnamed") for obj in found_objects]
+        logger.info(f"Names of found {obj_type_lower}(s): {found_object_names}")
+
+        logger.info(f"Evaluating selection logic for {obj_type_lower}. name_search='{name_search}', len(found_objects)={len(found_objects)}")
+        if name_search and name_search.lower() != "default" and len(found_objects) == 1:
+            selected_item_details = found_objects[0]
+            selected_item_id = selected_item_details.get(id_field)
+            selected_item_name = selected_item_details.get(name_field, "Unnamed")
+            logger.info(f"Exactly one {obj_type_lower} match found for search '{name_search}': Name='{selected_item_name}', ID='{selected_item_id}'.")
+            logger.info(f"Data for matched {obj_type_lower} '{selected_item_name}': {json.dumps(selected_item_details, indent=2)}")
+            
+            CURRENT_SELECTED_OBJECT.select(
+                object_type=obj_type_lower,
+                object_id=selected_item_id,
+                object_name=selected_item_name,
+                details=selected_item_details
+            )
+            selected_object_name_final = selected_item_name
+            logger.info(f"Final selected {obj_type_lower} (single match): {selected_object_name_final}")
+            return found_object_names, f"Selected Object is {selected_object_name_final}"
+        else:
+            logger.info(f"Default selection logic for {obj_type_lower}: name_search='{name_search}', num_found_objects={len(found_objects)}")
+            if name_search and name_search.lower() != "default" and len(found_objects) != 1:
+                logger.info(f"Search for '{name_search}' yielded {len(found_objects)} results (not 1). Selecting default {obj_type_lower}.")
+            
+            if default_object_id: # Check if a default was successfully determined
+                logger.info(f"Selecting default {obj_type_lower}: Name='{default_object_name}', ID='{default_object_id}'")
+                logger.info(f"Data for default {obj_type_lower} '{default_object_name}': {json.dumps(default_details, indent=2)}")
+                CURRENT_SELECTED_OBJECT.select(
+                    object_type=obj_type_lower,
+                    object_id=default_object_id,
+                    object_name=default_object_name,
+                    details=default_details
+                )
+                selected_object_name_final = default_object_name
+            else:
+                logger.warning(f"No default {obj_type_lower} could be determined or selected.")
+                CURRENT_SELECTED_OBJECT.clear() # Clear if no default can be set
+                selected_object_name_final = f"No default {obj_type_lower} available."
+        
+        logger.info(f"Final selected {obj_type_lower}: {selected_object_name_final}")
+        logger.info(f"Returning from default selection block for {obj_type_lower}.")
+        return found_object_names, f"Selected Object is {selected_object_name_final}"
+
+    except Exception as e:
+        logger.error(f"Exception in select_object_tool ({obj_type_lower}): {str(e)}", exc_info=True)
+        # Do not clear selection on general error, previous selection might be valid.
+        # Only clear if explicitly decided (e.g., no default found, or unsupported type).
+        return [], f"Error processing {obj_type_lower} selection: {str(e)}"

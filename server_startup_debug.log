@@ -1,0 +1,2 @@
+--- STDOUT/STDERR REDIRECTED TO: C:\GitRepos\python-sdk\connexa_openvpn_mcp_server\server_startup_debug.log ---
+{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":"2025-03-26","capabilities":{"experimental":{},"prompts":{"listChanged":false},"resources":{"subscribe":false,"listChanged":false},"tools":{"listChanged":false}},"serverInfo":{"name":"OpenVPN-Connexa-Server","version":"1.0.0"},"instructions":"Provides tools for interacting with various OpenVPN Connexa VPN APIs."}}

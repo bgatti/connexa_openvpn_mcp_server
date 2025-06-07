@@ -58,7 +58,8 @@ class TestSelectObjectDirectRealAPI(unittest.TestCase):
         print(f"\n--- Real API Test Results ---")
         print(f"Found Names: {found_names}")
         print(f"Selection Message: {selection_msg}")
-        print(f"Selected Object Info: {CURRENT_SELECTED_OBJECT.get_selected_object_info()}")
+        selected_info = CURRENT_SELECTED_OBJECT.get_selected_object_info()
+        print(f"Selected Object Info: {selected_info}")
         
         # Get and print available commands for the selected object
         available_commands = CURRENT_SELECTED_OBJECT.get_available_commands()
@@ -66,6 +67,62 @@ class TestSelectObjectDirectRealAPI(unittest.TestCase):
         
         print(f"-----------------------------")
 
+    def test_select_host_default_real_api(self):
+        """Test selecting a host, expecting default selection using the real API."""
+        found_names, selection_msg = select_object_tool(
+            object_type="host"
+            # No name_search, so default selection logic will apply
+        )
+
+        self.assertIsInstance(found_names, list)
+        self.assertIsInstance(selection_msg, str)
+        
+        self.assertIsNotNone(CURRENT_SELECTED_OBJECT.object_type, "Host object_type should be set")
+        self.assertEqual(CURRENT_SELECTED_OBJECT.object_type, "host", "Selected object_type should be 'host'")
+        self.assertIsNotNone(CURRENT_SELECTED_OBJECT.object_id, "Host object_id should be set")
+        self.assertIsNotNone(CURRENT_SELECTED_OBJECT.object_name, "Host object_name should be set")
+        self.assertIsInstance(CURRENT_SELECTED_OBJECT.details, dict, "Host details should be a dict")
+
+        print(f"\n--- Real API Test Results (Host - Default) ---")
+        print(f"Found Names: {found_names}")
+        print(f"Selection Message: {selection_msg}")
+        selected_info_host = CURRENT_SELECTED_OBJECT.get_selected_object_info()
+        print(f"Selected Object Info: {selected_info_host}")
+        available_commands = CURRENT_SELECTED_OBJECT.get_available_commands()
+        print(f"Available Commands: {available_commands}")
+        print(f"-----------------------------")
+
+    def test_select_usergroup_by_name_real_api(self):
+        """Test selecting a user group by name search using the real API."""
+        # Assuming you have a user group with "admin" or "default" in its name, or a default group exists.
+        search_term = "admin" 
+        found_names, selection_msg = select_object_tool(
+            object_type="usergroup",
+            name_search=search_term 
+        )
+
+        self.assertIsInstance(found_names, list)
+        self.assertIsInstance(selection_msg, str)
+
+        self.assertIsNotNone(CURRENT_SELECTED_OBJECT.object_type, "UserGroup object_type should be set")
+        self.assertEqual(CURRENT_SELECTED_OBJECT.object_type, "usergroup", "Selected object_type should be 'usergroup'")
+        self.assertIsNotNone(CURRENT_SELECTED_OBJECT.object_id, "UserGroup object_id should be set")
+        self.assertIsNotNone(CURRENT_SELECTED_OBJECT.object_name, "UserGroup object_name should be set")
+        self.assertIsInstance(CURRENT_SELECTED_OBJECT.details, dict, "UserGroup details should be a dict")
+        
+        # If a specific group named 'admin' was found and selected, its name should be in the message.
+        # Otherwise, the default group's name will be there.
+        # self.assertTrue(search_term in selection_msg.lower() or "default" in selection_msg.lower(), 
+        #                 f"Selection message '{selection_msg}' did not indicate selection of '{search_term}' or a default.")
+
+        print(f"\n--- Real API Test Results (UserGroup - Name Search: '{search_term}') ---")
+        print(f"Found Names: {found_names}")
+        print(f"Selection Message: {selection_msg}")
+        selected_info_usergroup = CURRENT_SELECTED_OBJECT.get_selected_object_info()
+        print(f"Selected Object Info: {selected_info_usergroup}")
+        available_commands = CURRENT_SELECTED_OBJECT.get_available_commands()
+        print(f"Available Commands: {available_commands}")
+        print(f"-----------------------------")
 
     # You can add more test cases here for default selection, exact match, etc.
     # adapting them to expect real API behavior.

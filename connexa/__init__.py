@@ -9,3 +9,5 @@ from . import dns_log_tools
 from . import group_tools
 from . import mcp_ovpn_res
 from . import connector_tools # Added for the new connector tools
+from . import selected_object # Expose selected_object module
+from . import creation_tools  # Expose creation_tools module

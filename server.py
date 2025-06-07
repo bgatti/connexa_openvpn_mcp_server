@@ -2,6 +2,30 @@ import sys
 import logging
 import os # Added for os.environ
 
+# --- Unique log message to confirm file version ---
+TEMP_SERVER_VERSION_LOG = "SERVER.PY VERSION: 2025-06-07_1530_EXPLICIT_NAMES"
+
+# +++ NEW DIAGNOSTIC PRINTS +++
+# These print directly to stdout and appear before any logging is configured or used.
+# This helps diagnose if the script is even starting or if paths are unexpected.
+# NOTE: These will now go to actual stdout, which stdio_client should capture.
+# These print directly to stdout and appear before any logging is configured or used.
+# This helps diagnose if the script is even starting or if paths are unexpected.
+print(f"--- SERVER.PY TOP LEVEL PRINT: Attempting to run {__file__} ---", flush=True)
+print(f"--- SERVER.PY SYS.PATH: {sys.path} ---", flush=True)
+print(f"--- SERVER.PY CWD: {os.getcwd()} ---", flush=True)
+print(f"--- SERVER.PY PYTHONPATH ENV: {os.environ.get('PYTHONPATH')} ---", flush=True)
+# +++ END NEW DIAGNOSTIC PRINTS +++
+
+logging.basicConfig( # Ensure basicConfig is called before any logging
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stdout # Changed to stdout
+)
+logger = logging.getLogger(__name__) # Define logger early
+logger.info(f"--- EXECUTING SERVER FILE VERSION (logs to stdout): {TEMP_SERVER_VERSION_LOG} ---")
+
+
 # MCP Framework Imports
 from mcp.server.fastmcp import FastMCP
 import mcp.types as types
@@ -14,24 +38,25 @@ import click
 
 # Local Application Imports
 # For initializing config, changed to relative and specific imports
-from .connexa.config_manager import get_api_token as cm_get_api_token, \
+from connexa.config_manager import get_api_token as cm_get_api_token, \
                             initialize_config as cm_initialize_config, \
                             BUSINESS_NAME as CM_BUSINESS_NAME, \
                             API_TOKEN as CM_API_TOKEN, \
                             CLIENT_ID as CM_CLIENT_ID
-from .connexa.config_manager import validate_credentials # Import the new validation tool
-from .prompts import CONNEXA_API_GUIDELINES # Import the data list directly
+from connexa.config_manager import validate_credentials # Import the new validation tool
+from prompts import CONNEXA_API_GUIDELINES # Import the data list directly
 # The guideline_prompt_provider module alias is no longer needed for server.py
 
 
 
 # Configure basic logging (similar to double_factorial_mcp_server)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    stream=sys.stderr
-)
-logger = logging.getLogger(__name__)
+# This is a duplicate basicConfig call, the one above should suffice.
+# logging.basicConfig(
+#     level=logging.INFO,
+#     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+#     stream=sys.stdout # Ensure this is also stdout if it were active
+# )
+# logger = logging.getLogger(__name__) # Already defined
 
 # Log environment details early
 logger.info(f"Python version: {sys.version}")
@@ -73,7 +98,7 @@ app = FastMCP(
 logger.info(f"FastMCP application '{app.name}' created at module level.")
 
 # Import for dynamic tools and selected object
-from .connexa.selected_object import CURRENT_SELECTED_OBJECT
+from connexa.selected_object import CURRENT_SELECTED_OBJECT
 # from .connexa.dynamic_tool_manager import register_selection_listener, get_updated_tool_descriptions # Removed as part of refactoring
 
 # Register the listener for dynamic tool updates
@@ -126,63 +151,22 @@ logger.info(f"Attempting to log count of CONNEXA_API_GUIDELINES: {len(CONNEXA_AP
 # --- Import Tool Modules and Register Tools/Resources on the module-level 'app' ---
 try:
     logger.info("Importing tool modules...")
-    from . import user_tools # Changed to relative
-    from .connexa import device_tools # Changed to relative
-    from .connexa import dns_log_tools # Changed to relative
-    # from .connexa import device_posture_tools # Changed to relative
-    from .connexa import group_tools # Changed to relative
-    from .connexa import connector_tools # Import the connector_tools module
-    from .connexa import mcp_ovpn_res # Contains resource functions
-    from .connexa import connexa_api # Import the new connexa_api module
+    import user_tools # Changed from: from . import user_tools
+    from connexa import device_tools
+    from connexa import dns_log_tools
+    # from connexa import device_posture_tools # Assuming this would follow the pattern if uncommented
+    from connexa import group_tools
+    from connexa import connector_tools
+    from connexa import mcp_ovpn_res
+    from connexa import connexa_api
     # selected_object is already imported above for CURRENT_SELECTED_OBJECT, but we need the module itself too.
-    from .connexa import selected_object # Ensure the module is imported for app.tool()
+    from connexa import selected_object # Ensure the module is imported for app.tool()
     # api_tools.py is still imported for now, might be refactored/removed later if schema tool is also moved or not used.
-    from . import server_tools as aws_server_tools # Import AWS server tools
-    logger.info("Tool modules imported (including connexa_api.py, mcp_ovpn_res.py, and aws_server_tools.py for new resources and tools).")
+    import server_tools as aws_server_tools # Changed from: from . import server_tools as aws_server_tools
+    # Import creation tool functions directly
+    from connexa  import creation_tools
 
-    logger.info("Registering User tools...")
-    app.tool()(user_tools.get_users)
-    app.tool()(user_tools.get_user)
-    app.tool()(user_tools.create_user)
-    app.tool()(user_tools.update_user)
-    app.tool()(user_tools.delete_user)
-    logger.info("User tools registered.")
-
-    logger.info("Registering Device tools...")
-    app.tool()(device_tools.get_devices)
-    app.tool()(device_tools.create_device)
-    app.tool()(device_tools.get_device_details)
-    app.tool()(device_tools.update_device_details)
-    app.tool()(device_tools.delete_device_record)
-    app.tool()(device_tools.generate_device_profile)
-    app.tool()(device_tools.revoke_device_profile)
-    logger.info("Device tools registered.")
-
-    logger.info("Registering DNS Log tools...")
-    app.tool()(dns_log_tools.enable_dns_log)
-    app.tool()(dns_log_tools.disable_dns_log)
-    app.tool()(dns_log_tools.get_user_dns_resolutions)
-    logger.info("DNS Log tools registered.")
-
-    # logger.info("Registering Device Posture tools...")
-    # app.tool()(device_posture_tools.get_device_posture_policies)
-    # app.tool()(device_posture_tools.create_device_posture_policy)
-    # app.tool()(device_posture_tools.get_device_posture_policy_details)
-    # app.tool()(device_posture_tools.update_device_posture_policy_details)
-    # app.tool()(device_posture_tools.delete_device_posture_policy_record)
-    # logger.info("Device Posture tools registered.")
-
-    logger.info("Registering Group tools...")
-    app.tool()(group_tools.get_user_groups)
-    app.tool()(group_tools.get_user_group)
-    app.tool()(group_tools.create_user_group)
-    app.tool()(group_tools.update_user_group_name)
-    app.tool()(group_tools.update_user_group_internet_access)
-    app.tool()(group_tools.update_user_group_max_device)
-    app.tool()(group_tools.update_user_group_connect_auth)
-    app.tool()(group_tools.update_user_group_all_regions_included)
-    app.tool()(group_tools.delete_user_group)
-    logger.info("Group tools registered.")
+    logger.info("Tool modules imported (including connexa_api.py, mcp_ovpn_res.py, aws_server_tools.py, and creation_tools.py).")
 
     logger.info("Registering Resources...")
     # Register the new resource. The URI will be derived from the function name
@@ -191,18 +175,7 @@ try:
     app.resource(uri="mcp://resources/user_groups_summary")(mcp_ovpn_res.get_user_groups_resource)
     app.resource(uri="mcp://resources/users_with_group_info")(mcp_ovpn_res.get_users_with_group_info_resource)
     
-    # Define a local wrapper for the current_selection resource as a diagnostic step
-    async def _local_wrapper_fetch_current_selection():
-        logger.info("server.py: _local_wrapper_fetch_current_selection called. Calling mcp_ovpn_res.fetch_current_selection_data...")
-        try:
-            result = await mcp_ovpn_res.fetch_current_selection_data()
-            logger.info(f"server.py: _local_wrapper_fetch_current_selection received: {result}")
-            return result
-        except Exception as e_wrapper:
-            logger.error(f"server.py: Exception in _local_wrapper_fetch_current_selection: {e_wrapper}", exc_info=True)
-            return {"error": f"Wrapper error: {str(e_wrapper)}"}
 
-    app.resource(uri="mcp://resources/current_selection")(_local_wrapper_fetch_current_selection)
     # Register the new region resource
     app.resource(uri="mcp://resources/regions")(mcp_ovpn_res.get_regions_resource) # Ensure this is correctly registered
     # Register the API overview resource
@@ -211,24 +184,20 @@ try:
     app.resource(uri="mcp://resources/api_commands")(mcp_ovpn_res.get_api_commands_resource)
     # Register the new schema resource (pointing to schema.json content)
     app.resource(uri="mcp://resources/schema")(mcp_ovpn_res.get_schema_json_resource)
+    # Register the current_selection resource
+    app.resource(uri="mcp://resources/current_selection")(mcp_ovpn_res.get_current_selection_data)
+    # Register the new creation_schema resources
+    # Route for specific object_type
+    app.resource(uri="mcp://resources/creation_schema/{object_type}")(mcp_ovpn_res.get_creation_schema_resource)
+    # Route for base URI (no object_type)
+    app.resource(uri="mcp://resources/creation_schema")(mcp_ovpn_res.get_creation_schema_resource_base) # Uses the new wrapper
     # Register resource for active dynamic tools - Removed as part of dynamic tool manager refactoring
     # app.resource(uri="mcp://resources/active_dynamic_tools")(get_updated_tool_descriptions)
-    logger.info("Resources registered (including api_commands and schema).") # Updated log message
+    logger.info("Resources registered (including api_commands, schema, current_selection, and creation_schema).")
 
     logger.info("Registering Custom API tools (from connexa_api.py)...")
     app.tool()(connexa_api.call_api)
-    # The schema tool is also in connexa_api.py now. If api_tools.py's schema is still needed, it can be registered from there.
-    # For now, assuming call_api is the primary one being moved.
-    # app.tool()(connexa_api.schema) # If you want to register the schema tool from connexa_api
-    logger.info("Custom API tools (call_api from connexa_api) registered.")
-
-    logger.info("Registering Configuration tools...")
     app.tool()(validate_credentials)
-    logger.info("Configuration tools registered.")
-
-    # The schema tool from api_tools.py is removed as the file is missing.
-    # If a schema tool is needed, it should be registered from connexa_api.py if available there.
-    # logger.info("Registering Schema tool (from api_tools.py)...")
 
     logger.info("Registering AWS Connector tools...")
     app.tool()(aws_server_tools.Provision_Connector_tool)
@@ -243,6 +212,19 @@ try:
     logger.info("Registering Selection tools...")
     app.tool()(selected_object.select_object_tool)
     logger.info("Selection tools registered.")
+
+    # logger.info("Registering Creation tools (from creation_tools.py)...")
+    # app.tool(name="create_network_tool")(creation_tools.create_network_tool)
+    # app.tool(name="create_network_connector_tool")(create_network_connector_tool)
+    # app.tool(name="create_user_group_tool")(create_user_group_tool)
+    # app.tool(name="create_host_tool")(create_host_tool)
+    # app.tool(name="create_host_connector_tool")(create_host_connector_tool)
+    # app.tool(name="create_device_tool")(create_device_tool)
+    # app.tool(name="create_dns_record_tool")(create_dns_record_tool)
+    # app.tool(name="create_access_group_tool")(create_access_group_tool)
+    # app.tool(name="create_location_context_tool")(create_location_context_tool)
+    # app.tool(name="create_device_posture_tool")(create_device_posture_tool)
+    # logger.info(f"Creation tools registration attempted. TEMP_SERVER_VERSION_LOG: {TEMP_SERVER_VERSION_LOG}")
 
     logger.info("Registering AWS Resources...")
     app.resource(uri="mcp://resources/aws_regions")(aws_server_tools.get_available_aws_regions_resource)
