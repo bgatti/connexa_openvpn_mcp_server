@@ -190,7 +190,19 @@ try:
     # Resource functions are accessed via the imported mcp_ovpn_res module.
     app.resource(uri="mcp://resources/user_groups_summary")(mcp_ovpn_res.get_user_groups_resource)
     app.resource(uri="mcp://resources/users_with_group_info")(mcp_ovpn_res.get_users_with_group_info_resource)
-    app.resource(uri="mcp://resources/current_selection")(mcp_ovpn_res.get_current_selection_resource)
+    
+    # Define a local wrapper for the current_selection resource as a diagnostic step
+    async def _local_wrapper_fetch_current_selection():
+        logger.info("server.py: _local_wrapper_fetch_current_selection called. Calling mcp_ovpn_res.fetch_current_selection_data...")
+        try:
+            result = await mcp_ovpn_res.fetch_current_selection_data()
+            logger.info(f"server.py: _local_wrapper_fetch_current_selection received: {result}")
+            return result
+        except Exception as e_wrapper:
+            logger.error(f"server.py: Exception in _local_wrapper_fetch_current_selection: {e_wrapper}", exc_info=True)
+            return {"error": f"Wrapper error: {str(e_wrapper)}"}
+
+    app.resource(uri="mcp://resources/current_selection")(_local_wrapper_fetch_current_selection)
     # Register the new region resource
     app.resource(uri="mcp://resources/regions")(mcp_ovpn_res.get_regions_resource) # Ensure this is correctly registered
     # Register the API overview resource

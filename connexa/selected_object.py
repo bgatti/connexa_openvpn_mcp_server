@@ -97,14 +97,17 @@ class SelectedObject:
             try:
                 listener(self.object_type) # Pass the new object type
             except Exception as e:
-                print(f"Error notifying listener {listener}: {e}")
+                logger.error(f"Error notifying listener {listener}: {e}", exc_info=True) # Use logger
 
     def select(self, object_type: str, object_id: Optional[str], object_name: Optional[str], details: Dict[str, Any]):
+        logger.info(f"SelectedObject.select called with: type='{object_type}', id='{object_id}', name='{object_name}'")
+        logger.info(f"SelectedObject.select storing details: {json.dumps(details, indent=2)}") # Log the details being stored
         self.object_type = object_type
         self.object_id = object_id
         self.object_name = object_name
         self.details = details
-        print(f"SelectedObject: Selected {object_type} - {object_name} (ID: {object_id})")
+        # print(f"SelectedObject: Selected {object_type} - {object_name} (ID: {object_id})") # Replaced by logger
+        logger.info(f"SelectedObject: Successfully selected {object_type} - {object_name} (ID: {object_id})")
         # dynamic_tool_manager and update_dynamic_tools are being refactored/removed.
         # The new approach uses generic tools that internally adapt to the selected object.
         self._notify_listeners()
@@ -449,30 +452,34 @@ def select_object_tool(object_type: str, name_search: Optional[str] = None, kwar
 
             logger.info(f"Evaluating selection logic. name_search='{name_search}', len(found_objects)={len(found_objects)}")
             if name_search and name_search.lower() != "default" and len(found_objects) == 1:
-                selected = found_objects[0]
-                logger.info(f"Exactly one match found for search '{name_search}': {selected.get('name')}. Proceeding with selection.")
+                selected_item_details = found_objects[0] # This is the dict from API
+                selected_item_id = selected_item_details.get("id")
+                selected_item_name = selected_item_details.get("name", "Unnamed")
+                logger.info(f"Exactly one match found for search '{name_search}': Name='{selected_item_name}', ID='{selected_item_id}'.")
+                logger.info(f"Data for matched object '{selected_item_name}': {json.dumps(selected_item_details, indent=2)}")
+                
                 CURRENT_SELECTED_OBJECT.select(
                     object_type="network",
-                    object_id=selected.get("id"),
-                    object_name=selected.get("name"),
-                    details=selected
+                    object_id=selected_item_id,
+                    object_name=selected_item_name,
+                    details=selected_item_details # Pass the full dict
                 )
-                selected_object_name = selected.get("name", "Unnamed")
-                logger.info(f"Final selected object: {selected_object_name}")
-                logger.info("Returning from single match selection block.")
+                selected_object_name = selected_item_name
+                logger.info(f"Final selected object (single match): {selected_object_name}")
                 return found_object_names, f"Selected Object is {selected_object_name}"
             else:
-                logger.info(f"Did not find exactly one match for search '{name_search}' (or search was 'default'). len(found_objects)={len(found_objects)}. Proceeding with default selection logic.")
-                if name_search and name_search.lower() != "default":
-                    logger.info(f"Search for '{name_search}' yielded {len(found_objects)} results. Selecting default.")
+                logger.info(f"Default selection logic: name_search='{name_search}', num_found_objects={len(found_objects)}")
+                if name_search and name_search.lower() != "default" and len(found_objects) != 1:
+                    logger.info(f"Search for '{name_search}' yielded {len(found_objects)} results (not 1). Selecting default.")
                 
                 if default_object_id:
-                    logger.info(f"Selecting default network: {default_object_name} (ID: {default_object_id})")
+                    logger.info(f"Selecting default network: Name='{default_object_name}', ID='{default_object_id}'")
+                    logger.info(f"Data for default object '{default_object_name}': {json.dumps(default_details, indent=2)}")
                     CURRENT_SELECTED_OBJECT.select(
                         object_type="network",
                         object_id=default_object_id,
                         object_name=default_object_name,
-                        details=default_details
+                        details=default_details # Pass the full dict
                     )
                     selected_object_name = default_object_name
                 else:
@@ -500,23 +507,3 @@ def select_object_tool(object_type: str, name_search: Optional[str] = None, kwar
         CURRENT_SELECTED_OBJECT.clear()
         return [], f"Unsupported object type: {object_type}. Supported types: network."
 
-# Example usage (for testing, not part of the tool itself)
-if __name__ == "__main__":
-    # This requires ConnexaAPI to be functional and configured
-    # print("Attempting to select default network...")
-    # names, selection_msg = select_object_tool(object_type="network")
-    # print(f"Found: {names}, Message: {selection_msg}")
-    # print(f"Current selection: {CURRENT_SELECTED_OBJECT.get_selected_object_info()}")
-
-    # print("\nAttempting to select network 'California'...")
-    # names, selection_msg = select_object_tool(object_type="network", name_search="California")
-    # print(f"Found: {names}, Message: {selection_msg}")
-    # print(f"Current selection: {CURRENT_SELECTED_OBJECT.get_selected_object_info()}")
-    
-    # print("\nAttempting to select a specific network (if one exists with a unique name)...")
-    # This part would need a known unique network name from your Connexa setup
-    # For example, if you have a network named "MyUniqueNet"
-    # names, selection_msg = select_object_tool(object_type="network", name_search="MyUniqueNet")
-    # print(f"Found: {names}, Message: {selection_msg}")
-    # print(f"Current selection: {CURRENT_SELECTED_OBJECT.get_selected_object_info()}")
-    pass

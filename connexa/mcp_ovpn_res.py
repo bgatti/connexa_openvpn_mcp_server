@@ -116,21 +116,21 @@ async def get_users_with_group_info_resource(): # Removed mcp: FastMCP parameter
         # mcp.logger.error(f"Error in get_users_with_group_info_resource: {e}", exc_info=True)
         return {"error": f"An error occurred while fetching users with group info: {str(e)}"}
 
-async def get_current_selection_resource():
+async def fetch_current_selection_data(): # Renamed function
     """
     Returns the currently selected item in the MCP server's state.
     """
-    print("get_current_selection_resource: Entered function", file=sys.stderr)
+    print("fetch_current_selection_data: Entered function", file=sys.stderr) # Updated print
     try:
         # Access the global CURRENT_SELECTED_OBJECT instance
         selected_info = CURRENT_SELECTED_OBJECT.get_selected_object_info()
-        print(f"get_current_selection_resource: Returning selected_info: {selected_info}", file=sys.stderr)
+        print(f"fetch_current_selection_data: Returning selected_info: {selected_info}", file=sys.stderr) # Updated print
         return selected_info
     except Exception as e:
-        print(f"get_current_selection_resource: Exception: {e}", file=sys.stderr)
+        print(f"fetch_current_selection_data: Exception: {e}", file=sys.stderr) # Updated print
         # Log the exception, e.g., using mcp.logger if available and configured
         # For now, just returning the error string
-        # Consider using mcp.logger.error(f"Error in get_current_selection_resource: {e}", exc_info=True)
+        # Consider using mcp.logger.error(f"Error in fetch_current_selection_data: {e}", exc_info=True)
         return {"error": f"An error occurred while fetching current selection: {str(e)}"}
 
 async def get_regions_resource():
