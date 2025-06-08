@@ -31,7 +31,7 @@ class TestSelectObjectDirectRealAPI(unittest.TestCase):
         # This will now make a real API call via the imported call_api
         found_names, selection_msg = select_object_tool(
             object_type="network",
-            name_search="california" # Assuming you have networks with "california" in their name
+            name_search="test-network-71c7398d" # Assuming you have networks with "california" in their name
         )
 
         # Assertions based on expected real API behavior

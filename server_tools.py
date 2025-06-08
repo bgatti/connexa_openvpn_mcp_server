@@ -1,10 +1,10 @@
 # aws/server_tools.py
 from typing import Any, Dict, List, Tuple, Optional
-from connexa.connexa_api import call_api # Updated to use connexa_api module
+from connexa_openvpn_mcp_server.connexa.connexa_api import call_api # Updated to use connexa_api module
 
 # Attempt to import from aws_tools.py; these are expected to be implemented there.
 # If aws_tools.py is not yet complete, these will act as placeholders.
-from aws import aws_tools
+from connexa_openvpn_mcp_server.aws import aws_tools
 upsert_regional_egress = aws_tools.upsert_regional_egress
 # Add delete_regional_egress_by_prefix
 delete_regional_egress_by_prefix = aws_tools.delete_regional_egress_by_prefix

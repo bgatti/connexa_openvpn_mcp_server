@@ -38,13 +38,13 @@ import click
 
 # Local Application Imports
 # For initializing config, changed to relative and specific imports
-from connexa.config_manager import get_api_token as cm_get_api_token, \
+from connexa_openvpn_mcp_server.connexa.config_manager import get_api_token as cm_get_api_token, \
                             initialize_config as cm_initialize_config, \
                             BUSINESS_NAME as CM_BUSINESS_NAME, \
                             API_TOKEN as CM_API_TOKEN, \
                             CLIENT_ID as CM_CLIENT_ID
-from connexa.config_manager import validate_credentials # Import the new validation tool
-from prompts import CONNEXA_API_GUIDELINES # Import the data list directly
+from connexa_openvpn_mcp_server.connexa.config_manager import validate_credentials # Import the new validation tool
+from connexa_openvpn_mcp_server.prompts import CONNEXA_API_GUIDELINES # Import the data list directly
 # The guideline_prompt_provider module alias is no longer needed for server.py
 
 
@@ -98,7 +98,7 @@ app = FastMCP(
 logger.info(f"FastMCP application '{app.name}' created at module level.")
 
 # Import for dynamic tools and selected object
-from connexa.selected_object import CURRENT_SELECTED_OBJECT
+from connexa_openvpn_mcp_server.connexa.selected_object import CURRENT_SELECTED_OBJECT
 # from .connexa.dynamic_tool_manager import register_selection_listener, get_updated_tool_descriptions # Removed as part of refactoring
 
 # Register the listener for dynamic tool updates
@@ -151,20 +151,20 @@ logger.info(f"Attempting to log count of CONNEXA_API_GUIDELINES: {len(CONNEXA_AP
 # --- Import Tool Modules and Register Tools/Resources on the module-level 'app' ---
 try:
     logger.info("Importing tool modules...")
-    import user_tools # Changed from: from . import user_tools
-    from connexa import device_tools
-    from connexa import dns_log_tools
-    # from connexa import device_posture_tools # Assuming this would follow the pattern if uncommented
-    from connexa import group_tools
-    from connexa import connector_tools
-    from connexa import mcp_ovpn_res
-    from connexa import connexa_api
+    from connexa_openvpn_mcp_server import user_tools # Changed from: from . import user_tools
+    from connexa_openvpn_mcp_server.connexa import device_tools
+    from connexa_openvpn_mcp_server.connexa import dns_log_tools
+    # from connexa_openvpn_mcp_server.connexa import device_posture_tools # Assuming this would follow the pattern if uncommented
+    from connexa_openvpn_mcp_server.connexa import group_tools
+    from connexa_openvpn_mcp_server.connexa import connector_tools
+    from connexa_openvpn_mcp_server.connexa import mcp_ovpn_res
+    from connexa_openvpn_mcp_server.connexa import connexa_api
     # selected_object is already imported above for CURRENT_SELECTED_OBJECT, but we need the module itself too.
-    from connexa import selected_object # Ensure the module is imported for app.tool()
+    from connexa_openvpn_mcp_server.connexa import selected_object # Ensure the module is imported for app.tool()
     # api_tools.py is still imported for now, might be refactored/removed later if schema tool is also moved or not used.
-    import server_tools as aws_server_tools # Changed from: from . import server_tools as aws_server_tools
+    from connexa_openvpn_mcp_server import server_tools as aws_server_tools # Changed from: from . import server_tools as aws_server_tools
     # Import creation tool functions directly
-    from connexa  import creation_tools
+    from connexa_openvpn_mcp_server.connexa  import creation_tools
 
     logger.info("Tool modules imported (including connexa_api.py, mcp_ovpn_res.py, aws_server_tools.py, and creation_tools.py).")
 
@@ -213,18 +213,18 @@ try:
     app.tool()(selected_object.select_object_tool)
     logger.info("Selection tools registered.")
 
-    # logger.info("Registering Creation tools (from creation_tools.py)...")
-    # app.tool(name="create_network_tool")(creation_tools.create_network_tool)
-    # app.tool(name="create_network_connector_tool")(create_network_connector_tool)
-    # app.tool(name="create_user_group_tool")(create_user_group_tool)
-    # app.tool(name="create_host_tool")(create_host_tool)
-    # app.tool(name="create_host_connector_tool")(create_host_connector_tool)
-    # app.tool(name="create_device_tool")(create_device_tool)
-    # app.tool(name="create_dns_record_tool")(create_dns_record_tool)
-    # app.tool(name="create_access_group_tool")(create_access_group_tool)
-    # app.tool(name="create_location_context_tool")(create_location_context_tool)
-    # app.tool(name="create_device_posture_tool")(create_device_posture_tool)
-    # logger.info(f"Creation tools registration attempted. TEMP_SERVER_VERSION_LOG: {TEMP_SERVER_VERSION_LOG}")
+    logger.info("Registering Creation tools (from creation_tools.py)...")
+    app.tool(name="create_network_tool")(creation_tools.create_network_tool)
+    app.tool(name="create_network_connector_tool")(creation_tools.create_network_connector_tool)
+    app.tool(name="create_user_group_tool")(creation_tools.create_user_group_tool)
+    app.tool(name="create_host_tool")(creation_tools.create_host_tool)
+    app.tool(name="create_host_connector_tool")(creation_tools.create_host_connector_tool)
+    app.tool(name="create_device_tool")(creation_tools.create_device_tool)
+    app.tool(name="create_dns_record_tool")(creation_tools.create_dns_record_tool)
+    app.tool(name="create_access_group_tool")(creation_tools.create_access_group_tool)
+    app.tool(name="create_location_context_tool")(creation_tools.create_location_context_tool)
+    app.tool(name="create_device_posture_tool")(creation_tools.create_device_posture_tool)
+    logger.info(f"Creation tools registration attempted. TEMP_SERVER_VERSION_LOG: {TEMP_SERVER_VERSION_LOG}")
 
     logger.info("Registering AWS Resources...")
     app.resource(uri="mcp://resources/aws_regions")(aws_server_tools.get_available_aws_regions_resource)

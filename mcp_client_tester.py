@@ -78,7 +78,7 @@ async def main():
             logger.info(tool_result)
 
             # Demonstrate selecting base objects
-            base_objects = ["network", "user", "user_group"]
+            base_objects = ["network", "host", "user_group"]
             for obj_type in base_objects:
                 logger.info(f"Attempting to call 'select_object_tool' for object type: {obj_type}")
                 select_object_payload = {"object_type": obj_type}
@@ -102,6 +102,13 @@ async def main():
             list_resources_result = await session.list_resources()
             resource_names = [resource.name if hasattr(resource, 'name') else resource.uri for resource in list_resources_result.resources]
             logger.info(f"Available resources: {resource_names}")
+
+            # Demonstrate selecting a specific network
+            logger.info("Attempting to call 'select_object_tool' for network: test-network-71c7398d")
+            select_network_payload = {"object_type": "network", "name_search": "test-network-71c7398d"}
+            select_network_result = await session.call_tool("select_object_tool", select_network_payload)
+            logger.info("Result from 'select_object_tool' for network test-network-71c7398d:")
+            logger.info(select_network_result)
 
         except Exception as e:
             logger.error(f"An error occurred: {e}", exc_info=True)

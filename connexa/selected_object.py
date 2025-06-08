@@ -615,7 +615,8 @@ def select_object_tool(object_type: str, name_search: Optional[str] = None, kwar
             item_name_str = str(item.get(name_field, "")).lower()
             name_match = True
             if name_search and name_search.lower() != "default":
-                if name_search.lower() not in item_name_str:
+                # Filter items by whether their name starts with the search term
+                if not item_name_str.startswith(name_search.lower()):
                     name_match = False
             
             if name_match:
@@ -643,13 +644,34 @@ def select_object_tool(object_type: str, name_search: Optional[str] = None, kwar
         found_object_names = [obj.get(name_field, "Unnamed") for obj in found_objects]
         logger.info(f"Names of found {obj_type_lower}(s): {found_object_names}")
 
-        logger.info(f"Evaluating selection logic for {obj_type_lower}. name_search='{name_search}', len(found_objects)={len(found_objects)}")
-        if name_search and name_search.lower() != "default" and len(found_objects) == 1:
-            selected_item_details = found_objects[0]
+        # --- Selection Logic ---
+        # Initialize selected_object_name_final, will be updated by selection outcomes
+        selected_object_name_final = f"No {obj_type_lower.capitalize()} matching '{name_search}' selected."
+
+        selected_item_details = None
+        
+        if name_search and name_search.lower() != "default":
+            # Search within the 'found_objects' (which are already filtered by startswith)
+            # for an item whose name is an exact match to the name_search term.
+            logger.info(f"Checking for exact match of '{name_search}' within {len(found_objects)} 'startswith' filtered results...")
+            for item_detail in found_objects:
+                if str(item_detail.get(name_field, "")).lower() == name_search.lower():
+                    selected_item_details = item_detail
+                    logger.info(f"Exact match found within 'startswith' results: {selected_item_details.get(name_field, 'Unnamed')}")
+                    break # Found exact match
+            
+            if not selected_item_details and len(found_objects) == 1:
+                # If no exact match, but the 'startswith' filter yielded exactly one result, select that one.
+                selected_item_details = found_objects[0]
+                logger.info(f"Single unique result from 'startswith' filter: {selected_item_details.get(name_field, 'Unnamed')}")
+        
+        # If a specific item was identified (either exact match or unique startswith result)
+        if selected_item_details:
             selected_item_id = selected_item_details.get(id_field)
             selected_item_name = selected_item_details.get(name_field, "Unnamed")
-            logger.info(f"Exactly one {obj_type_lower} match found for search '{name_search}': Name='{selected_item_name}', ID='{selected_item_id}'.")
-            logger.info(f"Data for matched {obj_type_lower} '{selected_item_name}': {json.dumps(selected_item_details, indent=2)}")
+            
+            logger.info(f"Selecting specific {obj_type_lower}: Name='{selected_item_name}', ID='{selected_item_id}'.")
+            logger.info(f"Data for selected {obj_type_lower} '{selected_item_name}': {json.dumps(selected_item_details, indent=2)}")
             
             CURRENT_SELECTED_OBJECT.select(
                 object_type=obj_type_lower,
@@ -658,16 +680,15 @@ def select_object_tool(object_type: str, name_search: Optional[str] = None, kwar
                 details=selected_item_details
             )
             selected_object_name_final = selected_item_name
-            logger.info(f"Final selected {obj_type_lower} (single match): {selected_object_name_final}")
-            return found_object_names, f"Selected Object is {selected_object_name_final}"
         else:
-            logger.info(f"Default selection logic for {obj_type_lower}: name_search='{name_search}', num_found_objects={len(found_objects)}")
-            if name_search and name_search.lower() != "default" and len(found_objects) != 1:
-                logger.info(f"Search for '{name_search}' yielded {len(found_objects)} results (not 1). Selecting default {obj_type_lower}.")
-            
-            if default_object_id: # Check if a default was successfully determined
+            # No specific item matched; select the default object if available.
+            # This occurs if name_search was not provided, was "default", 
+            # or if 'startswith' yielded multiple results but none were an exact match to name_search.
+            logger.info(f"No specific match for '{name_search}'. Attempting to select default {obj_type_lower}.")
+            if default_object_id: # Check if a default object was determined earlier
                 logger.info(f"Selecting default {obj_type_lower}: Name='{default_object_name}', ID='{default_object_id}'")
                 logger.info(f"Data for default {obj_type_lower} '{default_object_name}': {json.dumps(default_details, indent=2)}")
+                
                 CURRENT_SELECTED_OBJECT.select(
                     object_type=obj_type_lower,
                     object_id=default_object_id,
@@ -676,12 +697,13 @@ def select_object_tool(object_type: str, name_search: Optional[str] = None, kwar
                 )
                 selected_object_name_final = default_object_name
             else:
-                logger.warning(f"No default {obj_type_lower} could be determined or selected.")
-                CURRENT_SELECTED_OBJECT.clear() # Clear if no default can be set
-                selected_object_name_final = f"No default {obj_type_lower} available."
+                # No default object could be determined (e.g., items_list was empty)
+                logger.warning(f"No default {obj_type_lower} could be determined or selected. Clearing selection.")
+                CURRENT_SELECTED_OBJECT.clear() 
+                selected_object_name_final = f"No {obj_type_lower.capitalize()} available to select as default."
         
-        logger.info(f"Final selected {obj_type_lower}: {selected_object_name_final}")
-        logger.info(f"Returning from default selection block for {obj_type_lower}.")
+        logger.info(f"Final selected {obj_type_lower} (before return): {selected_object_name_final}")
+        logger.info(f"Returning from selection logic for {obj_type_lower}.")
         return found_object_names, f"Selected Object is {selected_object_name_final}"
 
     except Exception as e:

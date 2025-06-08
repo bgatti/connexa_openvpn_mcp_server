@@ -1,5 +1,4 @@
 # This file makes 'connexa' a Python package.
-
 # Explicitly import modules to make them available when 'connexa' is imported
 # and to help with import resolution for linters and runtime.
 from . import config_manager
@@ -8,6 +7,6 @@ from . import device_tools
 from . import dns_log_tools
 from . import group_tools
 from . import mcp_ovpn_res
-from . import connector_tools # Added for the new connector tools
-from . import selected_object # Expose selected_object module
-from . import creation_tools  # Expose creation_tools module
+from . import connector_tools
+from . import selected_object
+from . import creation_tools

@@ -6,7 +6,7 @@ import requests
 import httpx # Added for async client
 
 # Import from the new config manager
-from connexa import config_manager # Changed to relative import
+from connexa_openvpn_mcp_server.connexa import config_manager # This is module project
 from mcp.shared.exceptions import McpError
 from mcp.types import ErrorData, INTERNAL_ERROR, INVALID_PARAMS # Assuming these codes are relevant
 
