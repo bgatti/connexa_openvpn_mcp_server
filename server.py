@@ -151,11 +151,10 @@ logger.info(f"Attempting to log count of CONNEXA_API_GUIDELINES: {len(CONNEXA_AP
 # --- Import Tool Modules and Register Tools/Resources on the module-level 'app' ---
 try:
     logger.info("Importing tool modules...")
-    from connexa_openvpn_mcp_server import user_tools # Changed from: from . import user_tools
-    from connexa_openvpn_mcp_server.connexa import device_tools
-    from connexa_openvpn_mcp_server.connexa import dns_log_tools
+    # from connexa_openvpn_mcp_server.connexa import device_tools # Deprecated
+    # from connexa_openvpn_mcp_server.connexa import dns_log_tools # Deprecated
     # from connexa_openvpn_mcp_server.connexa import device_posture_tools # Assuming this would follow the pattern if uncommented
-    from connexa_openvpn_mcp_server.connexa import group_tools
+    # from connexa_openvpn_mcp_server.connexa import group_tools # Deprecated
     from connexa_openvpn_mcp_server.connexa import connector_tools
     from connexa_openvpn_mcp_server.connexa import mcp_ovpn_res
     from connexa_openvpn_mcp_server.connexa import connexa_api
@@ -173,11 +172,11 @@ try:
     # or can be specified. Let's use a specific URI.
     # Resource functions are accessed via the imported mcp_ovpn_res module.
     app.resource(uri="mcp://resources/user_groups_summary")(mcp_ovpn_res.get_user_groups_resource)
-    app.resource(uri="mcp://resources/users_with_group_info")(mcp_ovpn_res.get_users_with_group_info_resource)
+    # app.resource(uri="mcp://resources/users_with_group_info")(mcp_ovpn_res.get_users_with_group_info_resource) # COMMENTED OUT
     
 
     # Register the new region resource
-    app.resource(uri="mcp://resources/regions")(mcp_ovpn_res.get_regions_resource) # Ensure this is correctly registered
+    # app.resource(uri="mcp://resources/regions")(mcp_ovpn_res.get_regions_resource) # Ensure this is correctly registered # COMMENTED OUT
     # Register the API overview resource
     app.resource(uri="mcp://resources/api_overview")(mcp_ovpn_res.get_api_overview_resource)
     # Register the new api_commands resource
@@ -224,6 +223,7 @@ try:
     app.tool(name="create_access_group_tool")(creation_tools.create_access_group_tool)
     app.tool(name="create_location_context_tool")(creation_tools.create_location_context_tool)
     app.tool(name="create_device_posture_tool")(creation_tools.create_device_posture_tool)
+    app.tool(name="create_user_tool")(creation_tools.create_user_tool) # Added missing registration
     logger.info(f"Creation tools registration attempted. TEMP_SERVER_VERSION_LOG: {TEMP_SERVER_VERSION_LOG}")
 
     logger.info("Registering AWS Resources...")

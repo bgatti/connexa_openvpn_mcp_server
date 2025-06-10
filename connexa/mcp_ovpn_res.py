@@ -3,9 +3,80 @@ import asyncio # Needed for asyncio.to_thread
 import json # Added for JSON parsing
 import os # Added for path manipulation
 from mcp.server.fastmcp import FastMCP
-from .group_tools import get_user_groups, get_user_group # Import both functions
+# Removed: from .group_tools import get_user_groups, get_user_group
+from .connexa_api import call_api # Import call_api
 # Import the global selected object instance
 from .selected_object import CURRENT_SELECTED_OBJECT, _get_swagger_content # Import swagger loader
+from mcp.shared.exceptions import McpError # For error handling
+from mcp.types import ErrorData, INTERNAL_ERROR # For error handling
+import httpx # For making API calls (used by get_regions_resource)
+from typing import Optional # Import Optional
+
+# Move user_tools import to top-level for broader access
+# from .. import user_tools # Assuming user_tools.py is in the parent directory of connexa # COMMENTED OUT
+
+# --- Re-implemented group fetching functions using call_api ---
+async def get_user_groups(page: int = 0, size: int = 100) -> dict:
+    """
+    Fetches a paginated list of user groups using call_api.
+    """
+    print(f"Re-implemented get_user_groups: page={page}, size={size}", file=sys.stderr)
+    try:
+        # call_api is synchronous, so run it in a thread
+        response_data = await asyncio.to_thread(
+            call_api,
+            action="get",
+            path=f"/api/v1/user-groups?page={page}&size={size}"
+        )
+        # call_api returns the parsed JSON response or raises an exception
+        # Ensure it's a dict as expected by callers
+        if not isinstance(response_data, dict):
+            print(f"Re-implemented get_user_groups: call_api returned non-dict: {type(response_data)}", file=sys.stderr)
+            raise McpError(ErrorData(code=INTERNAL_ERROR, message="API did not return expected dictionary for user groups."))
+        return response_data
+    except Exception as e:
+        print(f"Re-implemented get_user_groups: Error: {e}", file=sys.stderr)
+        # Re-raise as McpError or a more specific error if call_api doesn't already do so
+        if isinstance(e, McpError):
+            raise
+        raise McpError(ErrorData(code=INTERNAL_ERROR, message=f"Failed to get user groups: {str(e)}"))
+
+async def get_user_group(group_id: str) -> Optional[dict]:
+    """
+    Fetches a single user group by its ID using call_api.
+    Returns None if the group is not found (e.g., 404).
+    """
+    print(f"Re-implemented get_user_group: group_id={group_id}", file=sys.stderr)
+    try:
+        response_data = await asyncio.to_thread(
+            call_api,
+            action="get",
+            path=f"/api/v1/user-groups/{group_id}"
+        )
+        if not isinstance(response_data, dict):
+            print(f"Re-implemented get_user_group: call_api returned non-dict: {type(response_data)}", file=sys.stderr)
+            # This might indicate an error that call_api didn't catch as a 404 or similar
+            raise McpError(ErrorData(code=INTERNAL_ERROR, message="API did not return expected dictionary for user group."))
+        return response_data
+    except McpError as e:
+        # McpError's first argument is usually the ErrorData object.
+        error_data_obj: Optional[ErrorData] = e.args[0] if e.args and isinstance(e.args[0], ErrorData) else None
+        
+        if error_data_obj and (
+            (error_data_obj.message and "404" in error_data_obj.message.lower()) or
+            (error_data_obj.data and "404" in str(error_data_obj.data).lower()) # Check 'data' instead of 'details'
+        ): # Heuristic for 404
+            print(f"Re-implemented get_user_group: Group {group_id} not found (404). McpError details: {error_data_obj}", file=sys.stderr)
+            return None # Return None for not found, as per original expectation
+        
+        print(f"Re-implemented get_user_group: McpError: {error_data_obj if error_data_obj else e}", file=sys.stderr)
+        raise # Re-raise other McpErrors
+    except Exception as e:
+        print(f"Re-implemented get_user_group: Error: {e}", file=sys.stderr)
+        # This path might be hit if call_api raises a non-McpError or if asyncio.to_thread fails
+        # For robustness, treat other exceptions as an issue and don't return None unless it's a clear "not found"
+        raise McpError(ErrorData(code=INTERNAL_ERROR, message=f"Failed to get user group {group_id}: {str(e)}"))
+
 
 async def get_user_groups_resource(): # Removed mcp: FastMCP parameter
     """
@@ -16,105 +87,86 @@ async def get_user_groups_resource(): # Removed mcp: FastMCP parameter
     try:
         print("get_user_groups_resource: Calling await get_user_groups", file=sys.stderr)
         # Call the now asynchronous get_user_groups function directly
-        tool_result = await get_user_groups(page=0, size=100)
+        tool_result = await get_user_groups(page=0, size=100) # Uses re-implemented version
         print(f"get_user_groups_resource: get_user_groups returned: {type(tool_result)}", file=sys.stderr)
 
-        # The original code checked for `tool_result is None`.
-        # The get_user_groups function in group_tools.py returns response.json() or raises McpError.
-        # It doesn't seem to return None for "no groups found" but might if an API call leads to that.
-        # A 404 in get_user_group (singular) returns None, but get_user_groups (plural) doesn't show this.
-        # An empty list [] is more likely for "no groups".
-        # If an error occurs, McpError is raised, which will be caught by the except block.
-        # So, `tool_result is None` might be an unlikely path unless the API itself returns null.
-        # Directly return the result from the get_user_groups call
-        # The get_user_groups function itself returns a dict (JSON response) or raises McpError
+        # The re-implemented get_user_groups should return a dict or raise McpError.
+        # An empty list of groups would typically be represented within the dict (e.g., "content": []).
+        # It should not return None unless call_api itself returns None, which is not its typical behavior.
         print("get_user_groups_resource: Returning tool_result", file=sys.stderr)
         return tool_result
 
-    except Exception as e:
+    except Exception as e: # This will catch McpError from get_user_groups
         print(f"get_user_groups_resource: Exception: {e}", file=sys.stderr)
-        # Log the exception, e.g., using mcp.logger if available and configured
-        # For now, just returning the error string
-        # Consider using mcp.logger.error(f"Error in get_user_groups_resource: {e}", exc_info=True)
         return {"error": f"An error occurred while fetching user groups: {str(e)}"}
 
-# Next steps:
-# 1. Register this resource function in server.py using `app.resource()`. (Done for get_user_groups_resource)
-# 2. Implement the "Selected" item concept.
-# 3. Implement the user list resource. (Doing this now)
-
-import httpx # For making API calls
-from mcp.shared.exceptions import McpError # For error handling
-from mcp.types import ErrorData, INTERNAL_ERROR # For error handling
-# Change relative import to absolute import
-#from connexa_openvpn_mcp_server import user_tools # For the new resource and API client
 
 # Removed: from .region_tools import get_vpn_regions
+# Note: user_tools import is further down, check if it's needed here or should be moved up.
+# For now, assuming it's correctly placed for get_users_with_group_info_resource.
 
-async def get_users_with_group_info_resource(): # Removed mcp: FastMCP parameter
-    """
-    Fetches users and their associated group names.
-    """
-    print("get_users_with_group_info_resource: Entered function", file=sys.stderr)
-    try:
-        print("get_users_with_group_info_resource: Calling asyncio.to_thread(get_users)", file=sys.stderr)
-        # Fetch all users
-        # get_users is still synchronous, so it needs to_thread
-        # OR user_tools.py also needs to be refactored for get_users to be async
-        # For now, assuming get_users in user_tools.py is still sync
-        # Use the function from the imported module
-        users_data = await asyncio.to_thread(user_tools.get_users, page=0, size=100) 
-        print(f"get_users_with_group_info_resource: user_tools.get_users returned: {type(users_data)}", file=sys.stderr)
-
-        if users_data is None:
-            print("get_users_with_group_info_resource: users_data is None", file=sys.stderr)
-            return {"error": "Failed to fetch users or no users found. Tool returned None."}
-
-        processed_users = []
-        # users_data from get_users is also a paginated response (dict with 'content')
-        if isinstance(users_data, dict) and "content" in users_data and isinstance(users_data["content"], list):
-            for user in users_data["content"]: # Iterate over the 'content' list
-                if not isinstance(user, dict):
-                    continue # Skip non-dict items
-
-                user_id = user.get("id")
-                first_name = user.get("firstName", "")
-                last_name = user.get("lastName", "")
-                email = user.get("email")
-                group_id = user.get("groupId")
-                
-                group_name = "N/A"
-                if group_id:
-                    try:
-                        # Fetch group details for this user's group_id
-                        # get_user_group is now async
-                        print(f"get_users_with_group_info_resource: Calling await get_user_group for group_id {group_id}", file=sys.stderr)
-                        group_data = await get_user_group(group_id=group_id)
-                        print(f"get_users_with_group_info_resource: get_user_group returned: {type(group_data)} for group_id {group_id}", file=sys.stderr)
-                        if group_data and isinstance(group_data, dict) and "name" in group_data:
-                            group_name = group_data["name"]
-                        elif group_data is None: # get_user_group returns None if group not found (404)
-                            group_name = "Unknown/Not Found"
-                    except Exception as e:
-                        print(f"get_users_with_group_info_resource: Exception in get_user_group call: {e}", file=sys.stderr)
-                        # Log this error, e.g., mcp.logger.warning(...)
-                        group_name = f"Error fetching group: {str(e)}"
-                
-                processed_users.append({
-                    "id": user_id,
-                    "name": f"{first_name} {last_name}".strip(),
-                    "email": email,
-                    "group_id": group_id,
-                    "group_name": group_name
-                })
-            
-        print("get_users_with_group_info_resource: Returning processed_users", file=sys.stderr)
-        return {"users_with_group_info": processed_users}
-
-    except Exception as e:
-        print(f"get_users_with_group_info_resource: Exception: {e}", file=sys.stderr)
-        # mcp.logger.error(f"Error in get_users_with_group_info_resource: {e}", exc_info=True)
-        return {"error": f"An error occurred while fetching users with group info: {str(e)}"}
+# async def get_users_with_group_info_resource(): # Removed mcp: FastMCP parameter # COMMENTED OUT
+#     """
+#     Fetches users and their associated group names.
+#     """
+#     print("get_users_with_group_info_resource: Entered function", file=sys.stderr)
+#     try:
+#         print("get_users_with_group_info_resource: Calling asyncio.to_thread(get_users)", file=sys.stderr)
+#         # Fetch all users
+#         # get_users is still synchronous, so it needs to_thread
+#         # user_tools is now imported at the top level.
+#         users_data = await asyncio.to_thread(user_tools.get_users, page=0, size=100)
+#         print(f"get_users_with_group_info_resource: user_tools.get_users returned: {type(users_data)}", file=sys.stderr)
+# 
+#         if users_data is None:
+#             print("get_users_with_group_info_resource: users_data is None", file=sys.stderr)
+#             return {"error": "Failed to fetch users or no users found. Tool returned None."}
+# 
+#         processed_users = []
+#         # users_data from get_users is also a paginated response (dict with 'content')
+#         if isinstance(users_data, dict) and "content" in users_data and isinstance(users_data["content"], list):
+#             for user in users_data["content"]: # Iterate over the 'content' list
+#                 if not isinstance(user, dict):
+#                     continue # Skip non-dict items
+# 
+#                 user_id = user.get("id")
+#                 first_name = user.get("firstName", "")
+#                 last_name = user.get("lastName", "")
+#                 email = user.get("email")
+#                 group_id = user.get("groupId")
+#                 
+#                 group_name = "N/A"
+#                 if group_id:
+#                     try:
+#                         # Fetch group details for this user's group_id
+#                         # get_user_group is now async
+#                         print(f"get_users_with_group_info_resource: Calling await get_user_group for group_id {group_id}", file=sys.stderr)
+#                         group_data = await get_user_group(group_id=group_id)
+#                         print(f"get_users_with_group_info_resource: get_user_group returned: {type(group_data)} for group_id {group_id}", file=sys.stderr)
+#                         if group_data and isinstance(group_data, dict) and "name" in group_data:
+#                             group_name = group_data["name"]
+#                         elif group_data is None: # get_user_group returns None if group not found (404)
+#                             group_name = "Unknown/Not Found"
+#                     except Exception as e:
+#                         print(f"get_users_with_group_info_resource: Exception in get_user_group call: {e}", file=sys.stderr)
+#                         # Log this error, e.g., mcp.logger.warning(...)
+#                         group_name = f"Error fetching group: {str(e)}"
+#                 
+#                 processed_users.append({
+#                     "id": user_id,
+#                     "name": f"{first_name} {last_name}".strip(),
+#                     "email": email,
+#                     "group_id": group_id,
+#                     "group_name": group_name
+#                 })
+#             
+#         print("get_users_with_group_info_resource: Returning processed_users", file=sys.stderr)
+#         return {"users_with_group_info": processed_users}
+# 
+#     except Exception as e:
+#         print(f"get_users_with_group_info_resource: Exception: {e}", file=sys.stderr)
+#         # mcp.logger.error(f"Error in get_users_with_group_info_resource: {e}", exc_info=True)
+#         return {"error": f"An error occurred while fetching users with group info: {str(e)}"}
 
 def get_current_selection_data(): # Renamed function, made synchronous
     """
@@ -137,52 +189,56 @@ async def get_regions_resource():
     """
     Fetches VPN regions directly using the API client.
     """
-    print("get_regions_resource: Entered function", file=sys.stderr)
-    client: httpx.AsyncClient | None = None
-    try:
-        # Use the function from the imported module
-        client = await user_tools.get_async_client()
-        url = "/api/v1/regions" # Relative URL as base_url is in client
-        print(f"get_regions_resource: Requesting URL: {client.base_url}{url}", file=sys.stderr)
-        
-        response = await client.get(url)
-        print(f"get_regions_resource: Response status code: {response.status_code}", file=sys.stderr)
-        response.raise_for_status()
-        
-        regions_data = response.json()
-        print(f"get_regions_resource: Successfully fetched regions data: {type(regions_data)}", file=sys.stderr)
-        
-        # Swagger indicates this returns an array of VpnRegionResponse
-        # We'll return it directly as the value for the "regions" key
-        if isinstance(regions_data, list):
-            return {"regions": regions_data}
-        else:
-            # This case should ideally not happen if API conforms to swagger
-            print(f"get_regions_resource: API returned non-list type: {type(regions_data)}", file=sys.stderr)
-            return {"error": "API returned unexpected data format for regions.", "details": regions_data}
-
-    except McpError: # Re-raise McpError from get_async_client
-        raise
-    except httpx.HTTPStatusError as e:
-        print(f"get_regions_resource: HTTPStatusError: {e.response.status_code} - {e.response.text}", file=sys.stderr)
-        error_message = f"API request failed with status {e.response.status_code}"
-        try:
-            error_details = e.response.json()
-            error_message += f": {error_details.get('errorMessage', e.response.text)}"
-        except Exception:
-            error_message += f": {e.response.text}"
-        # Return an error dict, as this is a resource function
-        return {"error": error_message, "status_code": e.response.status_code}
-    except httpx.RequestError as e:
-        print(f"get_regions_resource: RequestError: {e}", file=sys.stderr)
-        return {"error": f"API request failed: {str(e)}"}
-    except Exception as e:
-        print(f"get_regions_resource: Unexpected exception: {e}", file=sys.stderr)
-        # For unexpected errors, also return an error dict
-        return {"error": f"An unexpected error occurred while fetching regions: {str(e)}"}
-    finally:
-        if client:
-            await client.aclose()
+# async def get_regions_resource(): # COMMENTED OUT
+#     """
+#     Fetches VPN regions directly using the API client.
+#     """
+#     print("get_regions_resource: Entered function", file=sys.stderr)
+#     client: httpx.AsyncClient | None = None
+#     try:
+#         # Use the function from the imported module
+#         client = await user_tools.get_async_client()
+#         url = "/api/v1/regions" # Relative URL as base_url is in client
+#         print(f"get_regions_resource: Requesting URL: {client.base_url}{url}", file=sys.stderr)
+#         
+#         response = await client.get(url)
+#         print(f"get_regions_resource: Response status code: {response.status_code}", file=sys.stderr)
+#         response.raise_for_status()
+#         
+#         regions_data = response.json()
+#         print(f"get_regions_resource: Successfully fetched regions data: {type(regions_data)}", file=sys.stderr)
+#         
+#         # Swagger indicates this returns an array of VpnRegionResponse
+#         # We'll return it directly as the value for the "regions" key
+#         if isinstance(regions_data, list):
+#             return {"regions": regions_data}
+#         else:
+#             # This case should ideally not happen if API conforms to swagger
+#             print(f"get_regions_resource: API returned non-list type: {type(regions_data)}", file=sys.stderr)
+#             return {"error": "API returned unexpected data format for regions.", "details": regions_data}
+# 
+#     except McpError: # Re-raise McpError from get_async_client
+#         raise
+#     except httpx.HTTPStatusError as e:
+#         print(f"get_regions_resource: HTTPStatusError: {e.response.status_code} - {e.response.text}", file=sys.stderr)
+#         error_message = f"API request failed with status {e.response.status_code}"
+#         try:
+#             error_details = e.response.json()
+#             error_message += f": {error_details.get('errorMessage', e.response.text)}"
+#         except Exception:
+#             error_message += f": {e.response.text}"
+#         # Return an error dict, as this is a resource function
+#         return {"error": error_message, "status_code": e.response.status_code}
+#     except httpx.RequestError as e:
+#         print(f"get_regions_resource: RequestError: {e}", file=sys.stderr)
+#         return {"error": f"API request failed: {str(e)}"}
+#     except Exception as e:
+#         print(f"get_regions_resource: Unexpected exception: {e}", file=sys.stderr)
+#         # For unexpected errors, also return an error dict
+#         return {"error": f"An unexpected error occurred while fetching regions: {str(e)}"}
+#     finally:
+#         if client:
+#             await client.aclose()
 
 async def get_api_overview_resource():
     """

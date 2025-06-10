@@ -440,7 +440,7 @@ def complete_update_selected(updated_payload: Dict[str, Any]) -> str:
         return f"Error during update execution: {str(e)}"
 
 
-def select_object_tool(object_type: str, name_search: Optional[str] = None, kwargs: Optional[str] = None) -> Tuple[List[str], str]:
+def select_object_tool(object_type: str, name_search: Optional[str] = None, kwargs: Optional[str] = None) -> Dict[str, Any]:
     """
     Tool to select an object (e.g., Network, User, Group) by type and optional name search.
 
@@ -517,7 +517,12 @@ def select_object_tool(object_type: str, name_search: Optional[str] = None, kwar
         logger.warning(f"Unsupported object type: {object_type}. Clearing selection.")
         CURRENT_SELECTED_OBJECT.clear()
         supported_types = ", ".join(OBJECT_TYPE_CONFIG.keys())
-        return [], f"Unsupported object type: {object_type}. Supported types: {supported_types}."
+        return {
+            "status": "failure",
+            "message": f"Unsupported object type: {object_type}. Supported types: {supported_types}.",
+            "object_type": obj_type_lower,
+            "search_matches": []
+        }
 
     config = OBJECT_TYPE_CONFIG[obj_type_lower]
     api_path = config["path"]
@@ -541,7 +546,12 @@ def select_object_tool(object_type: str, name_search: Optional[str] = None, kwar
                CURRENT_SELECTED_OBJECT.object_type.lower() != parent_type_expected or \
                not CURRENT_SELECTED_OBJECT.object_id:
                 CURRENT_SELECTED_OBJECT.clear() # Clear selection if context is invalid for this search
-                return [], f"Must select a {parent_type_expected} before searching for a {obj_type_lower}."
+                return {
+                    "status": "failure",
+                    "message": f"Must select a {parent_type_expected} before searching for a {obj_type_lower}.",
+                    "object_type": obj_type_lower,
+                    "search_matches": []
+                }
             
             if parent_id_param_name: # Should always be true if parent_type is set
                  api_params[parent_id_param_name] = CURRENT_SELECTED_OBJECT.object_id
@@ -556,7 +566,12 @@ def select_object_tool(object_type: str, name_search: Optional[str] = None, kwar
             error_detail = f"API call failed or returned non-200 status. Full response: {api_response}"
             logger.error(f"Error fetching {obj_type_lower}(s): {error_detail}")
             # Do not clear selection here, as the previous selection might still be valid
-            return [], f"Error fetching {obj_type_lower}(s): {api_response.get('message', 'Unknown API error')}. Details: {error_detail}"
+            return {
+                "status": "error",
+                "message": f"Error fetching {obj_type_lower}(s): {api_response.get('message', 'Unknown API error')}. Details: {error_detail}",
+                "object_type": obj_type_lower,
+                "search_matches": []
+            }
 
         response_data = api_response.get("data", {})
         items_list: List[Dict[str, Any]] = []
@@ -569,12 +584,22 @@ def select_object_tool(object_type: str, name_search: Optional[str] = None, kwar
         else:
             error_detail = f"API response data for {obj_type_lower}(s) is not a list or does not contain a 'content' list. Data type: {type(response_data)}. Full response: {api_response}"
             logger.error(f"Error fetching {obj_type_lower}(s): {error_detail}")
-            return [], f"Error fetching {obj_type_lower}(s): Unexpected data format. Details: {error_detail}"
+            return {
+                "status": "error",
+                "message": f"Error fetching {obj_type_lower}(s): Unexpected data format. Details: {error_detail}",
+                "object_type": obj_type_lower,
+                "search_matches": []
+            }
 
         if not items_list:
             logger.warning(f"No {obj_type_lower}(s) found from API.")
             # Don't clear selection, just report no items of this type found
-            return [f"No {obj_type_lower}(s) found."], f"No {obj_type_lower}(s) available to select."
+            return {
+                "status": "not_found",
+                "message": f"No {obj_type_lower}(s) available to select.",
+                "object_type": obj_type_lower,
+                "search_matches": [f"No {obj_type_lower}(s) found."] # Keep original list-like structure for this key if needed
+            }
 
         # Determine default object
         if obj_type_lower == "network" and config.get("default_criteria_key"):
@@ -645,69 +670,71 @@ def select_object_tool(object_type: str, name_search: Optional[str] = None, kwar
         logger.info(f"Names of found {obj_type_lower}(s): {found_object_names}")
 
         # --- Selection Logic ---
-        # Initialize selected_object_name_final, will be updated by selection outcomes
-        selected_object_name_final = f"No {obj_type_lower.capitalize()} matching '{name_search}' selected."
-
         selected_item_details = None
         
+        # Try to find a specific item if name_search is provided and not "default"
         if name_search and name_search.lower() != "default":
-            # Search within the 'found_objects' (which are already filtered by startswith)
-            # for an item whose name is an exact match to the name_search term.
-            logger.info(f"Checking for exact match of '{name_search}' within {len(found_objects)} 'startswith' filtered results...")
+            logger.info(f"Attempting to find specific {obj_type_lower} matching '{name_search}'. Filtered 'found_objects' count: {len(found_objects)}")
+            # Check for exact match first within 'found_objects' (which are already 'startswith' filtered)
             for item_detail in found_objects:
                 if str(item_detail.get(name_field, "")).lower() == name_search.lower():
                     selected_item_details = item_detail
-                    logger.info(f"Exact match found within 'startswith' results: {selected_item_details.get(name_field, 'Unnamed')}")
-                    break # Found exact match
+                    logger.info(f"Exact match found for '{name_search}': {selected_item_details.get(name_field, 'Unnamed')}")
+                    break
             
             if not selected_item_details and len(found_objects) == 1:
-                # If no exact match, but the 'startswith' filter yielded exactly one result, select that one.
+                # If no exact match, but 'startswith' filter yielded a unique result, use that.
                 selected_item_details = found_objects[0]
-                logger.info(f"Single unique result from 'startswith' filter: {selected_item_details.get(name_field, 'Unnamed')}")
-        
-        # If a specific item was identified (either exact match or unique startswith result)
+                logger.info(f"Single unique 'startswith' match for '{name_search}': {selected_item_details.get(name_field, 'Unnamed')}")
+
+        # Case 1: A specific item was successfully identified by name_search
         if selected_item_details:
             selected_item_id = selected_item_details.get(id_field)
             selected_item_name = selected_item_details.get(name_field, "Unnamed")
+
+            if selected_item_id is None: # Should be rare if item is from API
+                logger.error(f"CRITICAL: Matched item '{selected_item_name}' is missing its ID. Details: {json.dumps(selected_item_details, indent=2)}")
+                CURRENT_SELECTED_OBJECT.clear()
+                return {"status": "failure", "message": f"Error: Matched {obj_type_lower} '{selected_item_name}' is missing ID.", "object_type": obj_type_lower, "search_matches": found_object_names}
             
             logger.info(f"Selecting specific {obj_type_lower}: Name='{selected_item_name}', ID='{selected_item_id}'.")
-            logger.info(f"Data for selected {obj_type_lower} '{selected_item_name}': {json.dumps(selected_item_details, indent=2)}")
-            
-            CURRENT_SELECTED_OBJECT.select(
-                object_type=obj_type_lower,
-                object_id=selected_item_id,
-                object_name=selected_item_name,
-                details=selected_item_details
-            )
-            selected_object_name_final = selected_item_name
+            CURRENT_SELECTED_OBJECT.select(object_type=obj_type_lower, object_id=selected_item_id, object_name=selected_item_name, details=selected_item_details)
+            return {"status": "success", "message": f"Selected Object is {CURRENT_SELECTED_OBJECT.object_name}", "object_type": obj_type_lower, "object_id": selected_item_id, "object_name": selected_item_name, "details": selected_item_details, "search_matches": found_object_names}
+
+        # Case 2: A specific name_search was given, but no item was found (selected_item_details is still None)
+        elif name_search and name_search.lower() != "default":
+            logger.warning(f"Specific search for {obj_type_lower} '{name_search}' did not find a match. Clearing selection.")
+            CURRENT_SELECTED_OBJECT.clear()
+            return {
+                "status": "not_found",
+                "message": f"No {obj_type_lower} found matching the specific name '{name_search}'. Selection cleared.",
+                "object_type": obj_type_lower,
+                "search_matches": found_object_names # Names that might have 'started with' but weren't exact/unique
+            }
+
+        # Case 3: No name_search, or name_search was "default". Attempt to select the default object.
         else:
-            # No specific item matched; select the default object if available.
-            # This occurs if name_search was not provided, was "default", 
-            # or if 'startswith' yielded multiple results but none were an exact match to name_search.
-            logger.info(f"No specific match for '{name_search}'. Attempting to select default {obj_type_lower}.")
-            if default_object_id: # Check if a default object was determined earlier
+            logger.info(f"No specific name search or 'default' requested. Attempting to select default {obj_type_lower}.")
+            if default_object_id and default_details.get(id_field) is not None:
                 logger.info(f"Selecting default {obj_type_lower}: Name='{default_object_name}', ID='{default_object_id}'")
-                logger.info(f"Data for default {obj_type_lower} '{default_object_name}': {json.dumps(default_details, indent=2)}")
-                
-                CURRENT_SELECTED_OBJECT.select(
-                    object_type=obj_type_lower,
-                    object_id=default_object_id,
-                    object_name=default_object_name,
-                    details=default_details
-                )
-                selected_object_name_final = default_object_name
+                CURRENT_SELECTED_OBJECT.select(object_type=obj_type_lower, object_id=default_object_id, object_name=default_object_name, details=default_details)
+                return {"status": "success", "message": f"Selected Object is {CURRENT_SELECTED_OBJECT.object_name}", "object_type": obj_type_lower, "object_id": default_object_id, "object_name": default_object_name, "details": default_details, "search_matches": found_object_names}
             else:
-                # No default object could be determined (e.g., items_list was empty)
-                logger.warning(f"No default {obj_type_lower} could be determined or selected. Clearing selection.")
-                CURRENT_SELECTED_OBJECT.clear() 
-                selected_object_name_final = f"No {obj_type_lower.capitalize()} available to select as default."
-        
-        logger.info(f"Final selected {obj_type_lower} (before return): {selected_object_name_final}")
-        logger.info(f"Returning from selection logic for {obj_type_lower}.")
-        return found_object_names, f"Selected Object is {selected_object_name_final}"
+                logger.warning(f"No default {obj_type_lower} could be determined or its ID is missing. Clearing selection.")
+                CURRENT_SELECTED_OBJECT.clear()
+                return {
+                    "status": "not_found",
+                    "message": f"No default {obj_type_lower} available to select, or default item is invalid. Selection cleared.",
+                    "object_type": obj_type_lower,
+                    "search_matches": found_object_names
+                }
 
     except Exception as e:
         logger.error(f"Exception in select_object_tool ({obj_type_lower}): {str(e)}", exc_info=True)
         # Do not clear selection on general error, previous selection might be valid.
-        # Only clear if explicitly decided (e.g., no default found, or unsupported type).
-        return [], f"Error processing {obj_type_lower} selection: {str(e)}"
+        return {
+            "status": "error",
+            "message": f"Error processing {obj_type_lower} selection: {str(e)}",
+            "object_type": obj_type_lower,
+            "search_matches": [] # Or potentially found_objects if available and relevant
+        }

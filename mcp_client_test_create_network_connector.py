@@ -8,52 +8,47 @@ import os
 import json
 from contextlib import AsyncExitStack
 from typing import Optional
+from dotenv import load_dotenv
 
 from mcp import ClientSession, StdioServerParameters
-from mcp.types import CallToolResult, TextContent, EmbeddedResource # UriContent removed, EmbeddedResource added
+from mcp.types import CallToolResult, TextContent, EmbeddedResource
 from mcp.client.stdio import stdio_client
 
-# Attempt to import actual CreateNetworkConnectorArgs, fallback to placeholder
-try:
-    from connexa_openvpn_mcp_server.connexa.connector_tools import CreateNetworkConnectorArgs
-except ImportError:
-    logging.warning("Actual CreateNetworkConnectorArgs not found or connexa.connector_tools doesn't exist. Using placeholder.")
-    from pydantic import BaseModel, Field, ConfigDict
+from connexa_openvpn_mcp_server.connexa.connector_tools import CreateConnectorArgs
+from connexa_openvpn_mcp_server.connexa.creation_tools import CreateNetworkArgs
+# CURRENT_SELECTED_OBJECT and CreateUserGroupArgs are no longer needed for this simplified test
+# from connexa_openvpn_mcp_server.connexa.selected_object import CURRENT_SELECTED_OBJECT
+# from connexa_openvpn_mcp_server.connexa.creation_tools import CreateUserGroupArgs
 
-    class CreateNetworkConnectorArgs(BaseModel):  # Placeholder definition
-        name: str
-        vpn_region_id: str = Field(default="us-default-region", alias="vpnRegionId")
-        # This placeholder assumes 'name' and 'vpnRegionId' are key.
-        # 'networkId' is intentionally omitted based on the hypothesis that
-        # the tool uses an implicitly selected object.
-        # If other fields are mandatory for the actual tool, this placeholder will need adjustment.
-        model_config = ConfigDict(populate_by_name=True, extra='ignore')
-
-
-# Imports for creating prerequisite objects (Network, User Group)
-from connexa_openvpn_mcp_server.connexa.creation_tools import CreateNetworkArgs, CreateUserGroupArgs
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # Expected error identifier for specific failure cases
-ERROR_NETWORK_REQUIRED = "ERROR_NETWORK_REQUIRED"
+ERROR_NETWORK_REQUIRED = "ERROR_NETWORK_REQUIRED" # Kept for now, though direct test removed
+ERROR_CONNEXA_REGION_NOT_SET = "ERROR_CONNEXA_REGION_NOT_SET"
 
-async def test_create_network_connector(session: ClientSession) -> Optional[str]:
+async def test_create_network_connector(session: ClientSession, actual_network_id: str, connector_name_to_create: str) -> tuple[Optional[str], Optional[str]]:
     """
     Tests creating a network connector.
-    Assumes a relevant object (network or non-network) has been selected via 'select_object' tool,
-    and 'create_network_connector_tool' will use this implicitly selected object.
+    Uses the provided actual_network_id.
+    Returns a tuple: (connector_id, connector_name)
     """
-    logger.info("\n--- Testing Network Connector Creation (relies on prior selection) ---")
-    connector_name = f"test-conn-{str(uuid.uuid4()).split('-')[0]}"
+    logger.info(f"\n--- Testing Network Connector Creation for '{connector_name_to_create}' ---")
+    
     try:
-        args = CreateNetworkConnectorArgs(
-            name=connector_name
-            # vpn_region_id will use default from placeholder if not overridden,
-            # or actual model's default/requirements.
+        vpn_region_id_from_env = os.environ.get("CONNEXA_REGION")
+        if not vpn_region_id_from_env:
+            logger.error("CONNEXA_REGION environment variable not set. Cannot determine vpn_region_id for connector creation.")
+            return ERROR_CONNEXA_REGION_NOT_SET, None
+
+        args = CreateConnectorArgs(
+            name=connector_name_to_create,
+            network_id=actual_network_id,
+            vpn_region_id=vpn_region_id_from_env,
+            description=f"Test connector {connector_name_to_create}"
         )
-        logger.info(f"Attempting to create network connector: {args.name} (using implicitly selected object)")
+        logger.info(f"Attempting to create network connector: {args.name} for network_id='{actual_network_id}' and vpn_region_id='{vpn_region_id_from_env}'")
 
         result: CallToolResult = await session.call_tool(
             "create_network_connector_tool",
@@ -68,57 +63,67 @@ async def test_create_network_connector(session: ClientSession) -> Optional[str]
                     payload_text = first_content.text
                     try:
                         payload_data = json.loads(payload_text)
-                        # Check for specific error message first, as it might be a valid JSON response
-                        if "select or create a network before creating a connector" in payload_text:
-                            logger.info(f"Connector creation for '{args.name}' failed as expected with message: {payload_text}")
-                            return ERROR_NETWORK_REQUIRED
+                        
+                        # This specific error check might be less relevant now if the tool always requires network_id
+                        if isinstance(payload_data, dict) and payload_data.get("message") == "Please Select a Network before creating a connector.":
+                             logger.info(f"Connector creation for '{args.name}' failed with message: {payload_data.get('message')}")
+                             return ERROR_NETWORK_REQUIRED, None # Should not happen if network_id is always provided
 
-                        if isinstance(payload_data, dict) and payload_data.get("status") in [200, 201, "ok", "success"]: # Common success indicators
-                            created_id = payload_data.get("data", {}).get("id") or payload_data.get("id")
-                            if created_id:
-                                logger.info(f"Successfully created network connector '{args.name}' with ID: {created_id}")
-                                return created_id
-                            else:
-                                logger.warning(f"Connector '{args.name}' creation: Success status, but 'id' not found. JSON: {payload_data}")
-                                return None
-                        elif isinstance(payload_data, dict) and payload_data.get("status") == "error":
-                             logger.error(f"API returned an error for connector '{args.name}': {payload_data.get('message', 'No message')}")
-                             return None
-                        else: # Unexpected response
-                            logger.error(f"Connector '{args.name}' creation: API did not return clear success/error. Response: {payload_data}")
-                            return None
+                        api_response_data = payload_data.get("data", payload_data) # Handle direct API response or nested
+                        
+                        # Check for direct successful creation (e.g. status 201 in top-level or data.status)
+                        # or nested success (data.data.id)
+                        created_id_direct = api_response_data.get("id")
+                        status_direct = payload_data.get("status") # top level status from tool
+                        
+                        nested_api_response = api_response_data.get("data") if isinstance(api_response_data, dict) else None
+                        created_id_nested = nested_api_response.get("id") if isinstance(nested_api_response, dict) else None
+                        
+                        if created_id_nested: # Prefer nested if available, as per original log
+                            logger.info(f"Successfully created network connector '{args.name}' with ID: {created_id_nested} (from nested data)")
+                            return created_id_nested, args.name
+                        elif created_id_direct and (status_direct == 201 or str(status_direct).lower() == "success" or str(status_direct).lower() == "warning"):
+                            logger.info(f"Successfully created network connector '{args.name}' with ID: {created_id_direct} (from direct data, status: {status_direct})")
+                            return created_id_direct, args.name
+                        # Handle error structure from log: {"status": "warning", "data": {"status": "error", "message": "..."}}
+                        elif isinstance(api_response_data, dict) and api_response_data.get("status") == "error":
+                            error_msg = api_response_data.get("message", "Unknown API error")
+                            logger.error(f"Connector '{args.name}' creation failed: API error status. Message: {error_msg}. Full API Response: {api_response_data}")
+                            return None, args.name # Return name for context, but ID is None
+                        else:
+                            logger.error(f"Connector '{args.name}' creation: 'id' not found or unexpected success format. Response: {payload_data}")
+                            return None, args.name # Return name for context
+
                     except json.JSONDecodeError:
-                        # If it's not JSON, but contains the message, it's still the specific error
-                        if "select or create a network before creating a connector" in payload_text:
-                            logger.info(f"Connector creation for '{args.name}' failed as expected with non-JSON message: {payload_text}")
-                            return ERROR_NETWORK_REQUIRED
                         logger.error(f"Connector '{args.name}' creation: Failed to parse TextContent as JSON. Content: {payload_text}")
-                        return None
+                        return None, None
                 else: # Not TextContent
                     logger.warning(f"Connector '{args.name}' creation: Content is not TextContent. Type: {type(first_content)}")
-                    return None
-            else: # No content
-                logger.warning(f"Connector '{args.name}' creation: No error reported by tool, but no content returned.")
-                return None
-        else:  # result.isError is True
-            error_message = "Unknown error from tool."
+                    return None, None
+            else: # result.isError is False, but no content
+                logger.warning(f"Connector '{args.name}' creation: Tool call successful but returned no content.")
+                return None, None
+        else: # result.isError is True
+            error_message = "Unknown tool error"
             if result.content and len(result.content) > 0 and isinstance(result.content[0], TextContent):
                 error_message = result.content[0].text
-            
-            if "select or create a network before creating a connector" in error_message:
-                logger.info(f"Connector creation for '{args.name}' failed as expected (tool error): {error_message}")
-                return ERROR_NETWORK_REQUIRED
-            
             logger.error(f"Tool 'create_network_connector_tool' for '{args.name}' reported an error: {error_message}")
-            logger.error(f"Full error content from tool: {result.content}")
-            return None
-
+            return None, None
+            
     except Exception as e:
-        logger.error(f"An exception occurred during network connector '{connector_name}' creation: {e}", exc_info=True)
-        return None
+        logger.error(f"An exception occurred during network connector '{connector_name_to_create}' creation: {e}", exc_info=True)
+        return None, None
 
 async def main():
-    logger.info("Starting MCP client tester for dependent object (Network Connector) creation...")
+    # Load environment variables from .env file located in the same directory as this script
+    dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
+    if os.path.exists(dotenv_path):
+        load_dotenv(dotenv_path=dotenv_path)
+        logger.info(f"Loaded environment variables from {dotenv_path}")
+    else:
+        logger.warning(f".env file not found at {dotenv_path}. Relying on system environment variables.")
+
+    logger.info("Starting MCP client tester for Network and Connector creation & provisioning...")
 
     server_command_parts = ["python", "-m", "connexa_openvpn_mcp_server.server"]
     command_executable = server_command_parts[0]
@@ -151,144 +156,117 @@ async def main():
             logger.info("Session initialized.")
 
             logger.info("Waiting a few seconds for server to be ready...")
-            await asyncio.sleep(5) # Allow server to initialize tools
+            await asyncio.sleep(5)
 
-            # === Part 1: Testing connector creation with a selected Network named 'test-network-71c7398d' ===
-            logger.info("\n--- Part 1: Testing connector creation with a selected Network named 'test-network-71c7398d' ---")
-            network_to_select_name = "test-network-71c7398d"  # As per user request
-            selected_network_uri_for_log = "N/A" # For logging in success/failure messages
+            # === Part 0: Create (Upsert) a Network ===
+            logger.info("\n--- Part 0: Creating/Upserting a Network ---")
+            network_name = f"test-network-{str(uuid.uuid4()).split('-')[0]}"
+            create_network_args = CreateNetworkArgs(
+                name=network_name, 
+                internetAccess="SPLIT_TUNNEL_ON",
+                description=None,
+                egress=None,
+                routes=None,
+                connectors=None,
+                tunnelingProtocol=None,
+                gatewaysIds=None
+            )
+            logger.info(f"Attempting to create network: {network_name}")
 
-            # Attempt to select the network "test-network-71c7398d"
-            logger.info(f"Attempting to select network: {network_to_select_name}")
-            select_nw_result: CallToolResult = await session.call_tool(
-                "select_object_tool", {"object_type": "network", "name_search": network_to_select_name}
+            create_network_result: CallToolResult = await session.call_tool(
+                "create_network_tool",
+                {"args": create_network_args.model_dump(by_alias=True, exclude_none=True)}
             )
 
-            nw_selected_successfully = False
-            if not select_nw_result.isError and select_nw_result.content and isinstance(select_nw_result.content[0], EmbeddedResource):
-                selected_resource_content = select_nw_result.content[0].resource
-                if hasattr(selected_resource_content, 'uri'):
-                    uri_str = str(selected_resource_content.uri)
-                    # Since we don't create the network here, we can't check its ID against the URI.
-                    # We assume if an EmbeddedResource is returned for "test", it's a successful selection.
-                    logger.info(f"Successfully selected network '{network_to_select_name}' (URI: {uri_str}).")
-                    selected_network_uri_for_log = uri_str
-                    nw_selected_successfully = True
-                else:
-                    logger.warning(f"Selected object for network '{network_to_select_name}' is EmbeddedResource but missing 'uri' in its 'resource' attribute of the EmbeddedResource.")
-            elif not select_nw_result.isError and select_nw_result.content and isinstance(select_nw_result.content[0], TextContent):
-                # This case handles scenarios where the tool might return a text message for "not found" or other non-error statuses.
-                logger.warning(f"Network selection for '{network_to_select_name}' returned TextContent instead of EmbeddedResource. Content: {select_nw_result.content[0].text}. Assuming selection failed.")
-            elif not select_nw_result.isError and select_nw_result.content:
-                 # Log if it's not an EmbeddedResource or TextContent
-                logger.warning(f"Network selection for '{network_to_select_name}' did not return EmbeddedResource or TextContent. Got type: {type(select_nw_result.content[0])}, Content: {select_nw_result.content[0]}. Assuming selection failed.")
-            # No specific handling for `select_nw_result.isError` here, as it's caught by `not nw_selected_successfully` combined with logging below
+            created_network_id: Optional[str] = None
+            created_network_name: Optional[str] = None
 
-            if not nw_selected_successfully:
-                # Consolidate error logging for selection failure
-                failure_reason = "did not succeed (e.g., not found, unexpected response, or tool error)."
-                if select_nw_result.isError:
-                    error_text = "Unknown tool error"
-                    if select_nw_result.content and len(select_nw_result.content) > 0 and isinstance(select_nw_result.content[0], TextContent):
-                        error_text = select_nw_result.content[0].text
-                    failure_reason = f"failed due to tool error: '{error_text}'."
+            if not create_network_result.isError and create_network_result.content and isinstance(create_network_result.content[0], TextContent):
+                try:
+                    network_data = json.loads(create_network_result.content[0].text)
+                    logger.info(f"Create network tool returned data: {json.dumps(network_data, indent=2)}")
+                    if isinstance(network_data, dict) and network_data.get("id") and network_data.get("name"):
+                         created_network_id = network_data.get("id")
+                         created_network_name = network_data.get("name")
+                         logger.info(f"Successfully created/retrieved network '{created_network_name}' with ID: {created_network_id}")
+                    elif isinstance(network_data, dict) and network_data.get("status") in ["error", "warning"]:
+                         logger.error(f"Create network tool reported status '{network_data.get('status')}': {network_data.get('message', 'No message')}.")
+                    else:
+                         logger.error(f"Create network tool returned data in an unexpected format: {network_data}")
+                except json.JSONDecodeError:
+                    logger.error(f"Failed to parse JSON response from create_network_tool: {create_network_result.content[0].text}")
+            elif create_network_result.isError:
+                error_text = "Unknown tool error"
+                if create_network_result.content and len(create_network_result.content) > 0 and isinstance(create_network_result.content[0], TextContent):
+                    error_text = create_network_result.content[0].text
+                logger.error(f"Create network tool returned an error: {error_text}.")
+            else:
+                 logger.warning("Create network tool returned no error and no content.")
+
+            if not created_network_id or not created_network_name:
+                logger.error("Part 0 FAILED: Network creation/retrieval failed. Cannot proceed.")
+                return
+
+            logger.info(f"Part 0 SUCCESS: Network '{created_network_name}' (ID: {created_network_id}) is ready.")
+
+            # === Part 1: Select the Network (implicitly done by creation tool if it sets selected_object) ===
+            # For robustness, explicitly select if `create_network_tool` doesn't guarantee selection.
+            # Assuming `create_network_tool` now handles selection or we rely on explicit network_id for connector.
+            # The `select_object_tool` call for network is removed as `create_network_connector` takes explicit `network_id`.
+            logger.info(f"\n--- Part 1: Network '{created_network_name}' (ID: {created_network_id}) is available for connector creation ---")
+
+
+            # === Part 2: Testing connector creation using the Network ID from Part 0 ===
+            logger.info(f"\n--- Part 2: Creating Network Connector in Network '{created_network_name}' (ID: {created_network_id}) ---")
+            
+            connector_name_part2 = f"test-conn-main-{str(uuid.uuid4()).split('-')[0]}"
+            created_connector_id, created_connector_name = await test_create_network_connector(session, created_network_id, connector_name_part2)
+
+            if created_connector_id and created_connector_id != ERROR_NETWORK_REQUIRED and created_connector_id != ERROR_CONNEXA_REGION_NOT_SET:
+                logger.info(f"Part 2 SUCCESS: Network Connector '{created_connector_name}' created with ID: {created_connector_id} for network '{created_network_name}'.")
                 
-                logger.error(f"Part 1 FAILED: Network selection for '{network_to_select_name}' {failure_reason} Full result: {select_nw_result}")
-                return # Exit main if selection fails, maintaining original script's behavior on Part 1 failure.
-
-            # If selection was successful, proceed to create connector
-            logger.info(f"Network '{network_to_select_name}' selected (URI: {selected_network_uri_for_log}). Proceeding to test connector creation.")
-            connector_id = await test_create_network_connector(session)
-
-            if connector_id and connector_id != ERROR_NETWORK_REQUIRED:
-                logger.info(f"Part 1 SUCCESS: Network Connector created with ID: {connector_id} using selected network '{network_to_select_name}' (Selected URI: {selected_network_uri_for_log}).")
-            elif connector_id == ERROR_NETWORK_REQUIRED:
-                logger.error(f"Part 1 FAILED: Connector creation failed with '{ERROR_NETWORK_REQUIRED}', but network '{network_to_select_name}' was selected (Selected URI: {selected_network_uri_for_log}). This may indicate an issue with the selection state or the connector tool's ability to use it.")
-            else:
-                logger.error(f"Part 1 FAILED: Network Connector creation failed after selecting network '{network_to_select_name}' (Selected URI: {selected_network_uri_for_log}). Connector creation returned: {connector_id}")
-
-            # === Part 2: Test with a non-Network object selected (User Group) ===
-            logger.info("\n--- Part 2: Testing connector creation with a selected non-Network object (User Group) ---")
-            ug_name = f"conn-test-ug-{str(uuid.uuid4()).split('-')[0]}"
-            # Ensure vpnRegionIds is provided as a list of strings
-            create_ug_payload = CreateUserGroupArgs(name=ug_name, vpnRegionIds=["us-west-1"]) # Example region # type: ignore
-            ug_creation_call: CallToolResult = await session.call_tool(
-                "create_user_group_tool",
-                {"args": create_ug_payload.model_dump(by_alias=True, exclude_none=True)}
-            )
-
-            ug_id: Optional[str] = None
-            if not ug_creation_call.isError and ug_creation_call.content and isinstance(ug_creation_call.content[0], TextContent):
-                ug_payload_data = json.loads(ug_creation_call.content[0].text)
-                if ug_payload_data.get("data", {}).get("id"): # Assuming structure {data: {id: ...}}
-                    ug_id = ug_payload_data["data"]["id"]
-                    logger.info(f"Successfully created user group '{ug_name}' with ID: {ug_id}")
-
-            if not ug_id:
-                logger.error(f"Part 2 FAILED: Prerequisite user group creation for '{ug_name}' failed. Response: {ug_creation_call}")
-                return
-
-            logger.info(f"Attempting to select user group: {ug_name} (ID: {ug_id})")
-            select_ug_result: CallToolResult = await session.call_tool(
-                "select_object_tool", {"object_type": "user_group", "search_term": ug_name}
-            )
-            
-            ug_selected_successfully = False
-            if not select_ug_result.isError and select_ug_result.content and isinstance(select_ug_result.content[0], EmbeddedResource):
-                selected_resource_content_ug = select_ug_result.content[0].resource
-                if hasattr(selected_resource_content_ug, 'uri'):
-                    uri_str = str(selected_resource_content_ug.uri)
-                    if ug_id in uri_str:
-                        logger.info(f"Successfully selected user group '{ug_name}' (URI: {uri_str}).")
-                        ug_selected_successfully = True
+                aws_region_to_use = os.environ.get("AWS_REGION")
+                if not aws_region_to_use:
+                    aws_region_to_use = os.environ.get("AWS_DEFAULT_REGION")
+                
+                if not aws_region_to_use:
+                    logger.warning("Neither AWS_REGION nor AWS_DEFAULT_REGION environment variable found. Skipping provisioning step for the connector.")
                 else:
-                    logger.warning(f"Selected object for user group '{ug_name}' is EmbeddedResource but missing 'uri' in its 'resource' attribute.")
-            elif not select_ug_result.isError and select_ug_result.content:
-                logger.warning(f"User group selection for '{ug_name}' did not return EmbeddedResource. Got type: {type(select_ug_result.content[0])}, Content: {select_ug_result.content[0]}")
+                    logger.info(f"Using AWS region: {aws_region_to_use} for provisioning.")
+                    logger.info(f"Attempting to provision connector ID: {created_connector_id} (Name: {created_connector_name}) in AWS region: {aws_region_to_use}")
+                    provision_args = {
+                        "connector_id": created_connector_id,
+                        "aws_region_id": aws_region_to_use
+                    }
+                    provision_result: CallToolResult = await session.call_tool(
+                        "Provision_Connector_tool",
+                        provision_args
+                    )
+                    logger.info(f"Raw tool call result from Provision_Connector_tool: {provision_result}")
+                    if not provision_result.isError and provision_result.content and isinstance(provision_result.content[0], TextContent):
+                        try:
+                            provision_data = json.loads(provision_result.content[0].text)
+                            logger.info(f"Provisioning response: {json.dumps(provision_data, indent=2)}")
+                            if provision_data.get("status") and "success" in provision_data.get("status", "").lower():
+                                logger.info(f"Connector '{created_connector_name}' (ID: {created_connector_id}) provisioning initiated successfully. Details: {provision_data.get('details')}")
+                            else:
+                                logger.error(f"Connector '{created_connector_name}' (ID: {created_connector_id}) provisioning failed or status unclear. Status: {provision_data.get('status')}, Message: {provision_data.get('message')}")
+                        except json.JSONDecodeError:
+                            logger.error(f"Failed to parse JSON response from Provision_Connector_tool: {provision_result.content[0].text}")
+                    elif provision_result.isError:
+                        error_text_prov = "Unknown tool error during provisioning"
+                        if provision_result.content and len(provision_result.content) > 0 and isinstance(provision_result.content[0], TextContent):
+                            error_text_prov = provision_result.content[0].text
+                        logger.error(f"Provision_Connector_tool for '{created_connector_name}' (ID: {created_connector_id}) reported an error: {error_text_prov}")
+                    else:
+                        logger.warning(f"Provision_Connector_tool for '{created_connector_name}' (ID: {created_connector_id}) returned no error and no parseable content.")
 
-            if not ug_selected_successfully:
-                logger.error(f"Part 2 FAILED: User group selection for '{ug_name}' failed. Result: {select_ug_result}")
-                return
-            
-            connector_res_non_nw = await test_create_network_connector(session)
-            if connector_res_non_nw == ERROR_NETWORK_REQUIRED:
-                logger.info("Part 2 SUCCESS: Connector creation correctly failed with 'network required' error when a user group was selected.")
+            elif created_connector_id == ERROR_NETWORK_REQUIRED: # Should not happen if network_id is always passed
+                logger.error(f"Part 2 FAILED: Connector creation failed with '{ERROR_NETWORK_REQUIRED}'. This is unexpected as network_id was provided.")
+            elif created_connector_id == ERROR_CONNEXA_REGION_NOT_SET:
+                logger.error(f"Part 2 FAILED: Connector creation failed because CONNEXA_REGION environment variable was not set.")
             else:
-                logger.error(f"Part 2 FAILED: Expected '{ERROR_NETWORK_REQUIRED}', got: {connector_res_non_nw}")
-
-            # === Part 3: Test with no object selected (or selection cleared/invalidated) ===
-            logger.info("\n--- Part 3: Testing connector creation with no object effectively selected ---")
-            logger.info("Attempting to select a non-existent object to clear/invalidate selection.")
-            select_non_existent_call: CallToolResult = await session.call_tool(
-                "select_object_tool", {"object_type": "network", "search_term": f"nonexistent-{uuid.uuid4()}"}
-            )
-            
-            # Check if selection failed as expected (e.g., "No object found")
-            cleared_selection = False
-            if not select_non_existent_call.isError and \
-               select_non_existent_call.content and \
-               isinstance(select_non_existent_call.content[0], TextContent) and \
-               ("No object found" in select_non_existent_call.content[0].text or \
-                "Could not find" in select_non_existent_call.content[0].text or \
-                "does not exist" in select_non_existent_call.content[0].text.lower()): # More general check
-                logger.info("Selection effectively cleared/invalidated by searching for a non-existent object.")
-                cleared_selection = True
-            elif select_non_existent_call.isError: # Also counts as invalid selection for next step
-                 logger.info("Selection failed due to tool error, effectively invalidating selection.")
-                 cleared_selection = True
-            else:
-                logger.warning(f"Could not definitively clear selection, select_object returned: {select_non_existent_call}")
-                # Proceeding anyway, as the selection might be invalid for the connector tool
-
-            if cleared_selection:
-                connector_res_no_sel = await test_create_network_connector(session)
-                if connector_res_no_sel == ERROR_NETWORK_REQUIRED:
-                    logger.info("Part 3 SUCCESS: Connector creation correctly failed with 'network required' error when no valid object was selected.")
-                else:
-                    logger.error(f"Part 3 FAILED: Expected '{ERROR_NETWORK_REQUIRED}', got: {connector_res_no_sel} (no selection).")
-            else:
-                logger.warning("Part 3 SKIPPED: Could not confirm selection was cleared/invalidated.")
-
+                logger.error(f"Part 2 FAILED: Network Connector creation failed for network '{created_network_name}'. Connector ID: '{created_connector_id}', Name: '{created_connector_name}'")
 
         except Exception as e:
             logger.error(f"An error occurred in main: {e}", exc_info=True)
