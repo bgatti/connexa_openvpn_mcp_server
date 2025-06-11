@@ -831,8 +831,18 @@ def create_host_connector_tool(args: CreateHostConnectorArgs) -> Dict[str, Any]:
     try:
         response_data = call_api(action="post", path=api_path, value=payload_args)
         
+        # Check for id and name at the top level first
         created_id = response_data.get("id")
-        created_name = response_data.get("name") 
+        created_name = response_data.get("name")
+
+        actual_connector_data = response_data # Assume top level is the data for now
+
+        if not (created_id and created_name):
+             # If not found at the top level, check for nested 'data' field
+             actual_connector_data = response_data.get("data") if isinstance(response_data, dict) else None
+             if actual_connector_data and isinstance(actual_connector_data, dict):
+                 created_id = actual_connector_data.get("id")
+                 created_name = actual_connector_data.get("name")
 
         if created_id and created_name:
             logger.info(f"Successfully created host connector '{created_name}' (ID: {created_id}). API Response: {response_data}")
@@ -840,7 +850,7 @@ def create_host_connector_tool(args: CreateHostConnectorArgs) -> Dict[str, Any]:
                 object_type="hostconnector", 
                 object_id=created_id,
                 object_name=created_name,
-                details=response_data 
+                details=actual_connector_data if isinstance(actual_connector_data, dict) else {} # Provide default empty dict if None
             )
             logger.info(f"Newly created host connector '{created_name}' (ID: {created_id}) has been selected.")
 
@@ -853,7 +863,10 @@ def create_host_connector_tool(args: CreateHostConnectorArgs) -> Dict[str, Any]:
             profile_response = call_api(action="get", path=profile_api_path)
 
             openvpn_profile_content = None
-            if isinstance(profile_response, dict) and profile_response.get("status", 0) >= 200 and profile_response.get("status", 0) < 300:
+            profile_api_status = profile_response.get("status") if isinstance(profile_response, dict) else None
+
+            # Check if status is an integer before comparing
+            if isinstance(profile_api_status, int) and 200 <= profile_api_status < 300:
                  openvpn_profile_content = profile_response.get("data")
                  if openvpn_profile_content:
                      logger.info(f"Successfully fetched OpenVPN profile for host connector '{created_name}'.")
@@ -866,17 +879,17 @@ def create_host_connector_tool(args: CreateHostConnectorArgs) -> Dict[str, Any]:
             if openvpn_profile_content:
                 # Call the provisioning tool
                 provisioning_result = upsert_regional_egress(
-                    prefix=created_name, # Use connector name as prefix
+                    aws_object_name=args.name, # Use the user-provided connector name
                     public=True, # Assuming public egress based on task context
                     region_id=None, # Use region from .env as per user instruction
                     openvpn_profile_content=openvpn_profile_content
                 )
-                logger.info(f"Provisioning result for host connector '{created_name}': {provisioning_result}")
+                logger.info(f"Provisioning result for host connector '{args.name}': {provisioning_result}")
                 # You might want to include provisioning_result in the return value or log it differently
             else:
                 logger.warning(f"Skipping AWS provisioning for host connector '{created_name}' due to missing OpenVPN profile content.")
 
-            return response_data 
+            return actual_connector_data if isinstance(actual_connector_data, dict) else {} # Provide default empty dict if None
         else:
             logger.warning(f"Host connector '{args.name}' creation API call successful, but 'id' or 'name' not found in response. Cannot select. Response: {response_data}")
             return {"status": "warning", "message": "Host connector created but ID or name not found in response.", "data": response_data}
@@ -1003,31 +1016,49 @@ def create_network_connector_tool(args: CreateNetworkConnectorArgs) -> Dict[str,
     api_path = f"/api/v1/networks/connectors?networkId={args.network_id}"
     
     try:
-        response_data = call_api(action="post", path=api_path, value=payload_args)
-        
-        created_id = response_data.get("id")
-        created_name = response_data.get("name") 
+        response_data_full = call_api(action="post", path=api_path, value=payload_args)
+        logger.info(f"Raw response from call_api in create_network_connector_tool: {response_data_full}")
 
-        if created_id and created_name:
-            logger.info(f"Successfully created network connector '{created_name}' (ID: {created_id}). API Response: {response_data}")
+        created_id = None
+        created_name = None
+        actual_connector_data = None
+
+        # The call_api tool wraps the actual API response.
+        # The actual connector data is expected to be in response_data_full["details"]["data"]
+        if isinstance(response_data_full, dict):
+            details_data = response_data_full.get("details")
+            if isinstance(details_data, dict):
+                actual_connector_data = details_data.get("data")
+                if isinstance(actual_connector_data, dict):
+                    created_id = actual_connector_data.get("id")
+                    created_name = actual_connector_data.get("name")
+
+        logger.info(f"After parsing call_api response structure: actual_connector_data={actual_connector_data}, created_id={created_id}, created_name={created_name}")
+
+        if actual_connector_data and created_id and created_name:
+            # Success case: API call was successful and we found id/name in the nested data
+            logger.info(f"Successfully created network connector '{created_name}' (ID: {created_id}). Actual connector data: {actual_connector_data}")
             CURRENT_SELECTED_OBJECT.select(
-                object_type="networkconnector", 
+                object_type="networkconnector",
                 object_id=created_id,
                 object_name=created_name,
-                details=response_data 
+                details=actual_connector_data
             )
             logger.info(f"Newly created network connector '{created_name}' (ID: {created_id}) has been selected.")
 
             # --- Provision the connector in AWS ---
             logger.info(f"Attempting to provision AWS resources for connector '{created_name}' (ID: {created_id}).")
-            
+
             # Fetch the OpenVPN profile content for the newly created connector
             profile_api_path = f"/api/v1/connectors/{created_id}/profile" # Assuming this is the correct API path
             logger.info(f"Fetching profile from API: {profile_api_path}")
             profile_response = call_api(action="get", path=profile_api_path)
 
             openvpn_profile_content = None
-            if isinstance(profile_response, dict) and profile_response.get("status", 0) >= 200 and profile_response.get("status", 0) < 300:
+            profile_api_status = profile_response.get("status") if isinstance(profile_response, dict) else None
+
+            # Check if status is an integer before comparing
+            if isinstance(profile_api_status, int) and 200 <= profile_api_status < 300:
                  openvpn_profile_content = profile_response.get("data")
                  if openvpn_profile_content:
                      logger.info(f"Successfully fetched OpenVPN profile for connector '{created_name}'.")
@@ -1040,20 +1071,23 @@ def create_network_connector_tool(args: CreateNetworkConnectorArgs) -> Dict[str,
             if openvpn_profile_content:
                 # Call the provisioning tool
                 provisioning_result = upsert_regional_egress(
-                    prefix=created_name, # Use connector name as prefix
+                    aws_object_name=args.name, # Use the user-provided connector name
                     public=True, # Assuming public egress based on task context
                     region_id=None, # Use region from .env as per user instruction
                     openvpn_profile_content=openvpn_profile_content
                 )
-                logger.info(f"Provisioning result for connector '{created_name}': {provisioning_result}")
+                logger.info(f"Provisioning result for connector '{args.name}': {provisioning_result}")
                 # You might want to include provisioning_result in the return value or log it differently
             else:
                 logger.warning(f"Skipping AWS provisioning for connector '{created_name}' due to missing OpenVPN profile content.")
 
-            return response_data 
+            # Return the actual connector data object
+            return actual_connector_data
         else:
-            logger.warning(f"Network connector '{args.name}' creation API call successful, but 'id' or 'name' not found in response. Cannot select. Response: {response_data}")
-            return {"status": "warning", "message": "Network connector created but ID or name not found in response.", "data": response_data}
+            # Neither top level nor nested 'data' field contained id/name
+            api_response_status = response_data_full.get("status") if isinstance(response_data_full, dict) else "Unknown"
+            logger.warning(f"Network connector '{args.name}' creation API call reported status {api_response_status}, but 'id' or 'name' not found in response (neither top level nor nested 'data'). Full API Response: {response_data_full}")
+            return {"status": "warning", "message": "Network connector created (API success) but ID or name not found in response.", "details": response_data_full}
 
     except Exception as e:
         logger.error(f"Exception during network connector creation for '{args.name}': {e}. Payload: {payload_args}", exc_info=True)

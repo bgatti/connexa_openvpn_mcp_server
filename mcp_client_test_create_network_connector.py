@@ -63,36 +63,51 @@ async def test_create_network_connector(session: ClientSession, actual_network_i
                     payload_text = first_content.text
                     try:
                         payload_data = json.loads(payload_text)
-                        
-                        # This specific error check might be less relevant now if the tool always requires network_id
-                        if isinstance(payload_data, dict) and payload_data.get("message") == "Please Select a Network before creating a connector.":
-                             logger.info(f"Connector creation for '{args.name}' failed with message: {payload_data.get('message')}")
-                             return ERROR_NETWORK_REQUIRED, None # Should not happen if network_id is always provided
+                        logger.info(f"Parsed tool response payload: {json.dumps(payload_data, indent=2)}") # Log the parsed payload
 
-                        api_response_data = payload_data.get("data", payload_data) # Handle direct API response or nested
+                        # Log top-level status and message if present
+                        tool_status = payload_data.get("status")
+                        tool_message = payload_data.get("message")
+                        if tool_status == "warning":
+                            logger.warning(f"Tool returned status: {tool_status}, message: {tool_message}")
+                        elif tool_status or tool_message:
+                            logger.info(f"Tool returned status: {tool_status}, message: {tool_message}")
+
+                        # The actual connector data is expected to be in payload_data["details"]["data"]
+                        details_data = payload_data.get("details")
+                        actual_connector_data = details_data.get("data") if isinstance(details_data, dict) else None
+
+                        created_id = None
+                        created_name = None
+
+                        if isinstance(actual_connector_data, dict):
+                            created_id = actual_connector_data.get("id")
+                            created_name = actual_connector_data.get("name")
+
+                        if created_id and created_name: # Success if id and name are found in the nested data
+                            logger.info(f"Successfully created network connector '{created_name}' with ID: {created_id} (from nested data)")
+                            return created_id, created_name
                         
-                        # Check for direct successful creation (e.g. status 201 in top-level or data.status)
-                        # or nested success (data.data.id)
-                        created_id_direct = api_response_data.get("id")
-                        status_direct = payload_data.get("status") # top level status from tool
-                        
-                        nested_api_response = api_response_data.get("data") if isinstance(api_response_data, dict) else None
-                        created_id_nested = nested_api_response.get("id") if isinstance(nested_api_response, dict) else None
-                        
-                        if created_id_nested: # Prefer nested if available, as per original log
-                            logger.info(f"Successfully created network connector '{args.name}' with ID: {created_id_nested} (from nested data)")
-                            return created_id_nested, args.name
-                        elif created_id_direct and (status_direct == 201 or str(status_direct).lower() == "success" or str(status_direct).lower() == "warning"):
-                            logger.info(f"Successfully created network connector '{args.name}' with ID: {created_id_direct} (from direct data, status: {status_direct})")
-                            return created_id_direct, args.name
-                        # Handle error structure from log: {"status": "warning", "data": {"status": "error", "message": "..."}}
-                        elif isinstance(api_response_data, dict) and api_response_data.get("status") == "error":
-                            error_msg = api_response_data.get("message", "Unknown API error")
-                            logger.error(f"Connector '{args.name}' creation failed: API error status. Message: {error_msg}. Full API Response: {api_response_data}")
+                        # If id/name not found in nested data, check for error status in the top-level payload
+                        tool_status = payload_data.get("status")
+                        tool_message = payload_data.get("message")
+
+                        if tool_status == "error":
+                            logger.error(f"Connector '{args.name}' creation failed: Tool reported an error status. Message: {tool_message}. Full Payload: {payload_data}")
                             return None, args.name # Return name for context, but ID is None
-                        else:
-                            logger.error(f"Connector '{args.name}' creation: 'id' not found or unexpected success format. Response: {payload_data}")
-                            return None, args.name # Return name for context
+                        elif tool_status == "warning":
+                             logger.warning(f"Connector '{args.name}' creation: Tool reported a warning status. Message: {tool_message}. Full Payload: {payload_data}")
+                             # Continue to check for nested data even with a warning
+                             if created_id and created_name:
+                                 logger.info(f"Despite warning, found connector ID '{created_id}' and name '{created_name}' in nested data.")
+                                 return created_id, created_name
+                             else:
+                                 logger.error(f"Connector '{args.name}' creation: Tool reported warning, but ID or name not found in nested data. Full Payload: {payload_data}")
+                                 return None, args.name # Return name for context
+
+                        # If neither nested ID/name found nor top-level error/warning, log unexpected format
+                        logger.error(f"Connector '{args.name}' creation: 'id' or 'name' not found in expected nested data or unexpected response format. Response: {payload_data}")
+                        return None, args.name # Return name for context
 
                     except json.JSONDecodeError:
                         logger.error(f"Connector '{args.name}' creation: Failed to parse TextContent as JSON. Content: {payload_text}")
@@ -260,6 +275,13 @@ async def main():
                         logger.error(f"Provision_Connector_tool for '{created_connector_name}' (ID: {created_connector_id}) reported an error: {error_text_prov}")
                     else:
                         logger.warning(f"Provision_Connector_tool for '{created_connector_name}' (ID: {created_connector_id}) returned no error and no parseable content.")
+
+                    # Add a short delay to allow the background provisioning process to start
+                    # A proper solution would involve polling a status endpoint if available
+                    logger.info("Waiting 30 seconds to allow provisioning process to initiate...")
+                    await asyncio.sleep(30)
+                    logger.info("Wait finished.")
+
 
             elif created_connector_id == ERROR_NETWORK_REQUIRED: # Should not happen if network_id is always passed
                 logger.error(f"Part 2 FAILED: Connector creation failed with '{ERROR_NETWORK_REQUIRED}'. This is unexpected as network_id was provided.")

@@ -3,6 +3,7 @@ import time
 from typing import Optional, Dict, Any
 import os
 import ipaddress
+import botocore.exceptions # Import botocore.exceptions
 
 # Assume AWS credentials and region are configured in the environment or AWS config files
 
@@ -52,7 +53,7 @@ def upsert_elastic_ip(ec2_client, instance_id: str, base_name_for_eip_tag: str, 
                 print(f"Instance {instance_id} already associated with Elastic IP: {public_ip} (Allocation ID: {association.get('AllocationId')})")
                 return public_ip
 
-        eip_name_tag_value = f"{prefix}_{base_name_for_eip_tag}_eip"
+        eip_name_tag_value = prefix
         allocation_id_to_associate = None
         public_ip_to_associate = None
 
@@ -133,7 +134,7 @@ def upsert_named_internet_gateway(ec2_client, vpc_id: str, prefix: str) -> Optio
     Finds or creates an Internet Gateway (named using prefix) and ensures it's attached to the VPC.
     Returns the Internet Gateway ID.
     """
-    igw_name_tag_value = f"{prefix}_igw"
+    igw_name_tag_value = prefix
     try:
         # Check for an existing IGW attached to the VPC
         igw_response = ec2_client.describe_internet_gateways(
@@ -192,7 +193,7 @@ def upsert_small_ec2_instance(ec2_client: Optional[boto3.client], instance_base_
         or None if creation/finding failed or instance is not running.
     """
     ec2_to_use = ec2_client if ec2_client else boto3.client('ec2')
-    instance_name_tag_value = f"{prefix}_{instance_base_name}_instance"
+    instance_name_tag_value = prefix
 
     try:
         # Check if an instance with the given name tag already exists and is running
@@ -472,7 +473,7 @@ def upsert_gateway_subnet(ec2_client: Optional[boto3.client], vpc_id: str, subne
         The ID of the subnet, or None if creation/finding failed.
     """
     ec2_to_use = ec2_client if ec2_client else boto3.client('ec2')
-    subnet_name_tag_value = f"{prefix}_{subnet_base_name}_subnet"
+    subnet_name_tag_value = prefix
 
     try:
         # Check if a subnet with the given name tag already exists in the VPC
@@ -589,8 +590,8 @@ def upsert_instance_security_group(ec2_client: Optional[boto3.client], vpc_id: s
     ec2_to_use = ec2_client if ec2_client else boto3.client('ec2')
     # Security Group names are unique per VPC. GroupName is what's used in filters.
     # Name tag is for display/identification.
-    sg_group_name_value = f"{prefix}_{sg_base_name}_sg" 
-    sg_name_tag_value = sg_group_name_value # Use the same for the Name tag for consistency
+    sg_group_name_value = prefix
+    sg_name_tag_value = prefix # Use the same for the Name tag for consistency
 
     try:
         # Check if the security group already exists by GroupName
@@ -1177,3 +1178,4 @@ if __name__ == '__main__':
             print("  - Subnet ID could not be determined/created.")
         if not security_group_ids_for_instance:
             print("  - Security Group ID(s) could not be determined/created.")
+

@@ -6,14 +6,34 @@ from typing import Optional, Dict, Any, List # Import List
 import random # Added for random CIDR generation
 import threading # Added for background EIP association
 
-# Import functions from aws_boto3_apis.py
+# Import specific functions from aws_boto3_apis.py
 # Assuming aws_boto3_apis.py is in the same directory
 if __name__ == "__main__" or __package__ is None or __package__ == '':
     # When running aws_tools.py directly for testing
-    import aws_boto3_apis as aws_ops
+    from aws_boto3_apis import (
+        get_latest_amazon_linux_2023_ami_id,
+        upsert_elastic_ip,
+        upsert_named_internet_gateway,
+        upsert_small_ec2_instance,
+        upsert_instance_security_group,
+        get_default_vpc_info,
+        analyze_nacl_for_subnet,
+        delete_if_found,
+        delete_security_group_by_name
+    )
 else:
     # When aws_tools.py is imported as part of the 'aws' package
-    from . import aws_boto3_apis as aws_ops
+    from .aws_boto3_apis import (
+        get_latest_amazon_linux_2023_ami_id,
+        upsert_elastic_ip,
+        upsert_named_internet_gateway,
+        upsert_small_ec2_instance,
+        upsert_instance_security_group,
+        get_default_vpc_info,
+        analyze_nacl_for_subnet,
+        delete_if_found,
+        delete_security_group_by_name
+    )
 
 # Helper functions for subnet creation with random CIDR strategy
 # START OF NEW HELPER FUNCTIONS
@@ -49,7 +69,7 @@ def _ensure_route_to_igw(ec2_client, vpc_id: str, subnet_id: str, igw_id: str) -
             main_rt_response = ec2_client.describe_route_tables(
                 Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}, {'Name': 'association.main', 'Values': ['true']}]
             )
-            if main_rt_response.get('RouteTables'):
+            if main_rt_response.get('RouteTables'): # Corrected key here
                 route_table_id = main_rt_response['RouteTables'][0]['RouteTableId']
         
         if not route_table_id:
@@ -128,17 +148,17 @@ def _ensure_route_to_igw(ec2_client, vpc_id: str, subnet_id: str, igw_id: str) -
             print(f"Error ensuring route to IGW for subnet {subnet_id} (route table ID used in failed create_route: {rt_id_for_log}): {e}")
             return False
 
-def _upsert_public_subnet_with_random_cidrs(ec2_client, vpc_id: str, vpc_main_cidr: str, subnet_base_name: str, prefix: str) -> Optional[str]:
+def _upsert_public_subnet_with_random_cidrs(ec2_client, vpc_id: str, vpc_main_cidr: str, subnet_base_name: str, aws_object_name: str) -> Optional[str]:
     """
     Upserts a public subnet. Finds an existing one by name tag or creates a new one
     using a random third octet strategy for a /24 CIDR. Ensures it's public via IGW.
     """
-    subnet_name_tag = f"{prefix}_{subnet_base_name}_subnet"
+    subnet_name_tag = aws_object_name
 
     existing_subnet_id = _find_existing_subnet_by_name(ec2_client, vpc_id, subnet_name_tag)
     if existing_subnet_id:
         print(f"Found existing public subnet '{subnet_name_tag}' with ID: {existing_subnet_id}. Verifying IGW route.")
-        igw_id = aws_ops.upsert_named_internet_gateway(ec2_client, vpc_id, prefix)
+        igw_id = upsert_named_internet_gateway(ec2_client, vpc_id, aws_object_name)
         if not igw_id:
             print(f"Error: Failed to upsert Internet Gateway for VPC {vpc_id} when verifying existing subnet {existing_subnet_id}.")
             return None
@@ -194,7 +214,7 @@ def _upsert_public_subnet_with_random_cidrs(ec2_client, vpc_id: str, vpc_main_ci
         print(f"Failed to create subnet '{subnet_name_tag}' after trying {len(third_octets_to_try)} random CIDRs.")
         return None
 
-    igw_id = aws_ops.upsert_named_internet_gateway(ec2_client, vpc_id, prefix)
+    igw_id = upsert_named_internet_gateway(ec2_client, vpc_id, aws_object_name)
     if not igw_id:
         print(f"Error: Failed to upsert Internet Gateway for VPC {vpc_id} after creating subnet {created_subnet_id}.")
         # Consider deleting the created_subnet_id here for cleanup
@@ -272,7 +292,7 @@ def validate_aws_credentials() -> bool:
         print(f"AWS credential validation failed: Error calling get_caller_identity - {str(e)}")
         return False
 
-def upsert_regional_egress(prefix: str, public: bool, region_id: Optional[str] = None, openvpn_profile_content: Optional[str] = None) -> Optional[Dict[str, Any]]:
+def upsert_regional_egress(aws_object_name: str, public: bool, region_id: Optional[str] = None, openvpn_profile_content: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """
     Creates or updates regional egress resources.
     If public is True:
@@ -281,7 +301,7 @@ def upsert_regional_egress(prefix: str, public: bool, region_id: Optional[str] =
     If public is False, it might set up resources for private egress or controlled internet access.
 
     Args:
-        prefix: A prefix string for naming AWS resources.
+        aws_object_name: The desired name for the AWS resources.
         public: Boolean indicating if public internet egress is required.
         region_id: Optional AWS region ID. If None, uses AWS_DEFAULT_REGION from .env or environment.
         openvpn_profile_content: Optional. If provided and public is True, an EC2 instance will be configured for OpenVPN egress.
@@ -291,7 +311,7 @@ def upsert_regional_egress(prefix: str, public: bool, region_id: Optional[str] =
         Example: {'vpc_id': 'vpc-xxxx', 'subnet_id': 'subnet-xxxx', 'public_ip': 'x.x.x.x', ...}
                  Returns None on failure.
     """
-    print(f"Initiating upsert_regional_egress for prefix '{prefix}', public: {public}, region: {region_id or 'default'}, OVPN profile provided: {bool(openvpn_profile_content)}")
+    print(f"Initiating upsert_regional_egress for aws_object_name '{aws_object_name}', public: {public}, region: {region_id or 'default'}, OVPN profile provided: {bool(openvpn_profile_content)}")
 
     # Load/refresh credentials and set region
     loaded_creds = refresh_aws_credentials_and_region(region_id)
@@ -310,7 +330,7 @@ def upsert_regional_egress(prefix: str, public: bool, region_id: Optional[str] =
         return None
 
     # Get the latest Amazon Linux 2023 AMI ID for the current region
-    ami_id = aws_ops.get_latest_amazon_linux_2023_ami_id(ec2_client) # Pass client
+    ami_id = get_latest_amazon_linux_2023_ami_id(ec2_client) # Pass client
     if not ami_id:
         print(f"Error: Could not retrieve latest Amazon Linux 2023 AMI ID in region {current_region}.")
         return None
@@ -318,7 +338,7 @@ def upsert_regional_egress(prefix: str, public: bool, region_id: Optional[str] =
 
     # Get default VPC information for the current region
     # Pass the ec2_client to get_default_vpc_info for consistency
-    vpc_info = aws_ops.get_default_vpc_info(ec2_client=ec2_client) 
+    vpc_info = get_default_vpc_info(ec2_client=ec2_client) 
 
     if not vpc_info or not vpc_info.get('VpcId'):
         print(f"Error: Could not retrieve default VPC information in region {current_region}.")
@@ -330,7 +350,7 @@ def upsert_regional_egress(prefix: str, public: bool, region_id: Optional[str] =
     egress_details = {
         "vpc_id": vpc_id,
         "region": current_region,
-        "prefix": prefix,
+        "aws_object_name": aws_object_name, # Use aws_object_name in details
         "public_egress_requested": public,
         "openvpn_profile_provided": bool(openvpn_profile_content),
         "public_ip": None,
@@ -341,12 +361,12 @@ def upsert_regional_egress(prefix: str, public: bool, region_id: Optional[str] =
         if openvpn_profile_content:
             # Scenario 1A: Public Egress via OpenVPN EC2 Instance
             egress_details["egress_type"] = "OpenVPN_EC2_Instance"
-            print(f"Setting up Public Egress via OpenVPN EC2 Instance for prefix '{prefix}'")
+            print(f"Setting up Public Egress via OpenVPN EC2 Instance for aws_object_name '{aws_object_name}'")
 
             # Instance parameters
             key_name = "mcp_openvpn" # Ensure this key pair exists in the region
             instance_base_name = "ovpn_egress" # Base name for the instance and related resources
-            egress_details["instance_base_name"] = instance_base_name # Store for deletion context
+            egress_details["instance_base_name"] = instance_base_name # Store for details
 
             # 1. Upsert public subnet for the OVPN instance
             # Using new local upsert function with random CIDR strategy
@@ -355,7 +375,7 @@ def upsert_regional_egress(prefix: str, public: bool, region_id: Optional[str] =
                 vpc_id=vpc_id,
                 vpc_main_cidr=vpc_cidr_block, # Renamed for clarity in the helper
                 subnet_base_name=f"{instance_base_name}_public",
-                prefix=prefix
+                aws_object_name=aws_object_name # Use aws_object_name for subnet
             )
             if not ovpn_public_subnet_id:
                 msg = f"Failed to upsert public subnet for OpenVPN instance in {current_region}."
@@ -366,16 +386,16 @@ def upsert_regional_egress(prefix: str, public: bool, region_id: Optional[str] =
             
             # Analyze NACL for the created/found subnet
             if ovpn_public_subnet_id:
-                nacl_analysis = aws_ops.analyze_nacl_for_subnet(ec2_client, ovpn_public_subnet_id)
+                nacl_analysis = analyze_nacl_for_subnet(ec2_client, ovpn_public_subnet_id)
                 egress_details["nacl_analysis_for_ovpn_subnet"] = nacl_analysis
             else:
                 egress_details["nacl_analysis_for_ovpn_subnet"] = {"status": "SKIPPED", "analysis_notes": ["Subnet ID not available for NACL analysis."]}
 
 
             # 2. Upsert security group for the OVPN instance
-            # The sg_base_name passed to aws_ops.upsert_instance_security_group is just instance_base_name.
-            # aws_ops.upsert_instance_security_group is assumed to construct the full name as prefix_sgbasename_sg.
-            constructed_sg_name = f"{prefix}_{instance_base_name}_sg"
+            # The sg_base_name passed to upsert_instance_security_group is just instance_base_name.
+            # upsert_instance_security_group is assumed to construct the full name as aws_object_name_sgbasename_sg.
+            constructed_sg_name = f"{aws_object_name}_{instance_base_name}_sg" # Update constructed name for details
             egress_details["ovpn_instance_security_group_name"] = constructed_sg_name # Store the full name
 
             ingress_rules = [
@@ -384,12 +404,12 @@ def upsert_regional_egress(prefix: str, public: bool, region_id: Optional[str] =
                 {'IpProtocol': 'tcp', 'FromPort': 443, 'ToPort': 443, 'IpRanges': [{'CidrIp': '0.0.0.0/0'}]},  # OpenVPN TCP (optional)
                 {'IpProtocol': 'icmp', 'FromPort': -1, 'ToPort': -1, 'IpRanges': [{'CidrIp': '0.0.0.0/0'}]} # ICMP for Ping (All ICMP types)
             ]
-            ovpn_sg_id = aws_ops.upsert_instance_security_group(
+            ovpn_sg_id = upsert_instance_security_group(
                 ec2_client=ec2_client, # Pass client
                 vpc_id=vpc_id,
                 ingress_rules=ingress_rules,
                 sg_base_name=instance_base_name, 
-                prefix=prefix
+                prefix=aws_object_name # Use aws_object_name for security group
             )
             if not ovpn_sg_id:
                 msg = f"Failed to upsert security group for OpenVPN instance in {current_region}."
@@ -399,12 +419,12 @@ def upsert_regional_egress(prefix: str, public: bool, region_id: Optional[str] =
             egress_details["ovpn_instance_security_group_id"] = ovpn_sg_id
 
             # 3. Upsert the EC2 instance
-            # Pass ec2_client to aws_ops.upsert_small_ec2_instance
-            instance_info = aws_ops.upsert_small_ec2_instance(
+            # Pass ec2_client to upsert_small_ec2_instance
+            instance_info = upsert_small_ec2_instance(
                 ec2_client=ec2_client, # Pass client
                 instance_base_name=instance_base_name, 
                 ami_id=ami_id, # This is now the dynamically fetched AMI ID
-                prefix=prefix,
+                prefix=aws_object_name, # Use aws_object_name for instance
                 key_name=key_name,
                 security_group_ids=[ovpn_sg_id],
                 subnet_id=ovpn_public_subnet_id,
@@ -419,7 +439,7 @@ def upsert_regional_egress(prefix: str, public: bool, region_id: Optional[str] =
                 egress_details["instance_status"] = "PROVISIONING_STARTED"
                 
                 # Spawn background thread for waiting and EIP association
-                # Ensure instance_base_name and prefix are correctly passed for EIP tagging
+                # Ensure instance_base_name and aws_object_name are correctly passed for EIP tagging
                 print(f"Spawning background thread for post-launch operations on instance {instance_id_for_bg}.")
                 bg_thread = threading.Thread(
                     target=_background_post_launch_tasks,
@@ -427,7 +447,7 @@ def upsert_regional_egress(prefix: str, public: bool, region_id: Optional[str] =
                         current_region, # Pass region_name, thread will create its own client
                         instance_id_for_bg,
                         instance_base_name, # This is the base_name for EIP tagging
-                        prefix # This is the prefix for EIP tagging
+                        aws_object_name # Use aws_object_name for EIP tagging in background task
                     )
                 )
                 bg_thread.start()
@@ -448,7 +468,7 @@ def upsert_regional_egress(prefix: str, public: bool, region_id: Optional[str] =
         else:
             # Scenario 1B: Public Egress via NAT Gateway
             egress_details["egress_type"] = "NAT_Gateway"
-            print(f"Setting up Public Egress via NAT Gateway for prefix '{prefix}'")
+            print(f"Setting up Public Egress via NAT Gateway for aws_object_name '{aws_object_name}'")
 
             public_subnet_base_name = "nat_egress_public" # Subnet for the NAT GW itself
             # Using new local upsert function with random CIDR strategy
@@ -457,7 +477,7 @@ def upsert_regional_egress(prefix: str, public: bool, region_id: Optional[str] =
                 vpc_id=vpc_id,
                 vpc_main_cidr=vpc_cidr_block, # Renamed for clarity in the helper
                 subnet_base_name=public_subnet_base_name,
-                prefix=prefix
+                aws_object_name=aws_object_name # Use aws_object_name for subnet
             )
             if not public_subnet_id:
                 msg = f"Failed to upsert public subnet for NAT Gateway in {current_region}."
@@ -468,7 +488,7 @@ def upsert_regional_egress(prefix: str, public: bool, region_id: Optional[str] =
 
             # Analyze NACL for the NAT gateway's public subnet
             if public_subnet_id:
-                nacl_analysis_nat = aws_ops.analyze_nacl_for_subnet(ec2_client, public_subnet_id)
+                nacl_analysis_nat = analyze_nacl_for_subnet(ec2_client, public_subnet_id)
                 egress_details["nacl_analysis_for_nat_subnet"] = nacl_analysis_nat
             else:
                 egress_details["nacl_analysis_for_nat_subnet"] = {"status": "SKIPPED", "analysis_notes": ["NAT Subnet ID not available for NACL analysis."]}
@@ -477,7 +497,7 @@ def upsert_regional_egress(prefix: str, public: bool, region_id: Optional[str] =
             nat_eip_allocation_id = None
             nat_public_ip = None
             try:
-                eip_tag_name = f"{prefix}_{nat_eip_base_name}_eip"
+                eip_tag_name = f"{aws_object_name}_{nat_eip_base_name}_eip" # Use aws_object_name for EIP tag
                 allocation = ec2_client.allocate_address(Domain='vpc') # No tags at allocation for NAT EIP
                 nat_eip_allocation_id = allocation['AllocationId']
                 nat_public_ip = allocation['PublicIp']
@@ -496,7 +516,6 @@ def upsert_regional_egress(prefix: str, public: bool, region_id: Optional[str] =
                 try:
                     # Check if a NAT gateway already exists for this EIP or in this subnet to avoid duplication
                     # This logic can be complex; for now, we attempt creation.
-                    # A more robust solution would describe NAT gateways and match.
                     
                     response = ec2_client.create_nat_gateway(
                         SubnetId=public_subnet_id,
@@ -512,7 +531,7 @@ def upsert_regional_egress(prefix: str, public: bool, region_id: Optional[str] =
                     print(f"NAT Gateway {nat_gateway_id} is available.")
                     
                     # Tag the NAT Gateway after creation
-                    nat_gw_name_tag = f"{prefix}_nat_gateway"
+                    nat_gw_name_tag = f"{aws_object_name}_nat_gateway" # Use aws_object_name for NAT GW tag
                     ec2_client.create_tags(Resources=[nat_gateway_id], Tags=[{'Key': 'Name', 'Value': nat_gw_name_tag}])
                     egress_details["notes"].append(f"NAT Gateway {nat_gateway_id} (tagged: {nat_gw_name_tag}) created and available.")
 
@@ -532,8 +551,8 @@ def upsert_regional_egress(prefix: str, public: bool, region_id: Optional[str] =
     else:
         # Scenario 2: Non-public or controlled egress
         egress_details["egress_type"] = "IGW_Only_Or_Private"
-        print(f"Setting up Non-Public/Controlled Egress for prefix '{prefix}'")
-        igw_id = aws_ops.upsert_named_internet_gateway(ec2_client, vpc_id, prefix)
+        print(f"Setting up Non-Public/Controlled Egress for aws_object_name '{aws_object_name}'")
+        igw_id = upsert_named_internet_gateway(ec2_client, vpc_id, aws_object_name) # Use aws_object_name for IGW
         if igw_id:
             egress_details["internet_gateway_id"] = igw_id
             egress_details["notes"].append(f"Ensured Internet Gateway {igw_id} is present for VPC {vpc_id}.")
@@ -544,7 +563,7 @@ def upsert_regional_egress(prefix: str, public: bool, region_id: Optional[str] =
     return egress_details
 
 
-def _background_post_launch_tasks(region_name: str, instance_id: str, instance_base_name_for_eip: str, prefix_for_eip: str):
+def _background_post_launch_tasks(region_name: str, instance_id: str, instance_base_name_for_eip: str, aws_object_name_for_eip: str):
     """
     Background task to wait for an instance to be running and then associate an Elastic IP.
     This function is intended to be run in a separate thread.
@@ -562,11 +581,11 @@ def _background_post_launch_tasks(region_name: str, instance_id: str, instance_b
 
         # Associate the Elastic IP
         # Note: aws_ops is imported at the top of aws_tools.py
-        elastic_ip = aws_ops.upsert_elastic_ip(
+        elastic_ip = upsert_elastic_ip(
             ec2_client=thread_ec2_client,
             instance_id=instance_id,
             base_name_for_eip_tag=instance_base_name_for_eip,
-            prefix=prefix_for_eip
+            prefix=aws_object_name_for_eip # Use aws_object_name for EIP tagging in background task
         )
 
         if elastic_ip:
@@ -581,7 +600,7 @@ def _background_post_launch_tasks(region_name: str, instance_id: str, instance_b
 
 def delete_regional_egress_by_prefix(
     instance_id: Optional[str], # Made instance_id optional
-    prefix: Optional[str] = None,
+    aws_object_name: Optional[str] = None, # Renamed from prefix
     region_id: Optional[str] = None,
     sg_group_name: Optional[str] = None,
     vpc_id: Optional[str] = None,
@@ -589,11 +608,11 @@ def delete_regional_egress_by_prefix(
     subnet_id_to_delete: Optional[str] = None # ID of the subnet to delete
 ) -> Dict[str, Any]: # Changed return type hint to Dict[str, Any]
     """
-    Deletes regional egress resources by prefix: EC2 instance, EIP, Security Group, and associated Subnet.
+    Deletes regional egress resources by aws_object_name: EC2 instance, EIP, Security Group, and associated Subnet.
 
     Args:
         instance_id: The ID of the EC2 instance to delete.
-        prefix: The prefix used for tagging resources.
+        aws_object_name: The name used for tagging resources.
         region_id: Optional AWS region ID.
         sg_group_name: The GroupName of the security group to delete.
         vpc_id: The VPC ID where the security group resides.
@@ -606,8 +625,9 @@ def delete_regional_egress_by_prefix(
         - "notes": A list of notes about the deletion process.
         - "details": A dictionary with details of deleted resources (if available).
     """
-    print(f"Initiating delete_regional_egress for instance ID '{instance_id}', prefix: {prefix}, region: {region_id or 'default'}, subnet: {subnet_id_to_delete}")
+    print(f"Initiating delete_regional_egress for instance ID '{instance_id}', aws_object_name: {aws_object_name}, region: {region_id or 'default'}, subnet: {subnet_id_to_delete}")
 
+    # Load/refresh credentials and set region
     loaded_creds = refresh_aws_credentials_and_region(region_id)
     current_region = loaded_creds.get("aws_default_region")
 
@@ -630,17 +650,20 @@ def delete_regional_egress_by_prefix(
     instance_and_eip_deleted = True # Default to True if no instance_id is provided
     instance_deletion_notes: List[str] = []
     eip_deletion_notes: List[str] = []
+    subnet_deleted = True # Initialize subnet_deleted
+    subnet_deletion_notes: List[str] = [] # Initialize subnet_deletion_notes
+
 
     if instance_id:
         print(f"Step 1: Deleting instance {instance_id} and its EIPs (using base_name: {instance_base_name})...")
-        # Pass ec2_client to aws_ops.delete_if_found
-        instance_and_eip_deleted = aws_ops.delete_if_found(
+        # Pass ec2_client to delete_if_found
+        instance_and_eip_deleted = delete_if_found(
             ec2_client=ec2_client, # Pass client
             instance_id=instance_id,
-            prefix=prefix,
+            prefix=aws_object_name, # Use aws_object_name for deletion targeting
             base_name_for_eip_tag=instance_base_name
         )
-        # Assuming aws_ops.delete_if_found returns a boolean
+        # Assuming delete_if_found returns a boolean
         if instance_and_eip_deleted:
              instance_deletion_notes.append(f"Instance {instance_id} and associated EIP processed for deletion.")
         else:
@@ -650,23 +673,23 @@ def delete_regional_egress_by_prefix(
     else:
         print("Step 1: Skipping instance and EIP deletion as no instance_id was provided.")
         # If instance_id is None, we still might need to clean up tagged EIPs.
-        if prefix and instance_base_name: # instance_base_name is used as base_name_for_eip_tag
-            print(f"Attempting to clean up tagged EIPs for prefix {prefix}, base_name {instance_base_name} even without instance ID.")
-            eip_cleanup_success = aws_ops.delete_if_found( # Assuming delete_if_found can handle instance_id=None
+        if aws_object_name and instance_base_name: # instance_base_name is used as base_name_for_eip_tag
+            print(f"Attempting to clean up tagged EIPs for aws_object_name {aws_object_name}, base_name {instance_base_name} even without instance ID.")
+            eip_cleanup_success = delete_if_found( # Assuming delete_if_found can handle instance_id=None
                 ec2_client=ec2_client,
                 instance_id=None, # Explicitly pass None
-                prefix=prefix,
+                prefix=aws_object_name, # Use aws_object_name for deletion targeting
                 base_name_for_eip_tag=instance_base_name
             )
             instance_and_eip_deleted = eip_cleanup_success # Overall success depends on EIP cleanup if no instance
-            # Assuming aws_ops.delete_if_found returns a boolean
+            # Assuming delete_if_found returns a boolean
             if eip_cleanup_success:
-                 eip_deletion_notes.append(f"Tagged EIP cleanup for prefix {prefix}, base_name {instance_base_name} processed.")
+                 eip_deletion_notes.append(f"Tagged EIP cleanup for aws_object_name {aws_object_name}, base_name {instance_base_name} processed.")
             else:
-                 eip_deletion_notes.append(f"Tagged EIP cleanup for prefix {prefix}, base_name {instance_base_name} encountered issues.")
+                 eip_deletion_notes.append(f"Tagged EIP cleanup for aws_object_name {aws_object_name}, base_name {instance_base_name} encountered issues.")
 
         else:
-            print("Skipping EIP cleanup by tag as prefix or instance_base_name is missing.")
+            print("Skipping EIP cleanup by tag as aws_object_name or instance_base_name is missing.")
             instance_and_eip_deleted = True # Nothing to delete, so considered successful in this context.
 
 
@@ -675,20 +698,22 @@ def delete_regional_egress_by_prefix(
     sg_deletion_notes: List[str] = []
     derived_sg_name = None
 
-    if not sg_group_name and prefix and instance_base_name:
-        derived_sg_name = f"{prefix}_{instance_base_name}_sg"
+    # Derive the security group name using the aws_object_name for deletion targeting
+    if aws_object_name and instance_base_name:
+        derived_sg_name = f"{aws_object_name}_{instance_base_name}_sg"
         print(f"Derived security group name for deletion: {derived_sg_name}")
     
+    # Use the derived name if sg_group_name was not explicitly provided
     actual_sg_name_to_delete = sg_group_name or derived_sg_name
 
     if actual_sg_name_to_delete and vpc_id:
         print(f"Step 2: Deleting security group '{actual_sg_name_to_delete}' in VPC '{vpc_id}'...")
-        sg_deleted = aws_ops.delete_security_group_by_name(
+        sg_deleted = delete_security_group_by_name(
             ec2_client=ec2_client,
             vpc_id=vpc_id,
             sg_group_name=actual_sg_name_to_delete
         )
-        # Assuming aws_ops.delete_security_group_by_name returns a boolean
+        # Assuming delete_security_group_by_name returns a boolean
         if sg_deleted:
             sg_deletion_notes.append(f"Security group '{actual_sg_name_to_delete}' processed for deletion.")
         else:
@@ -703,32 +728,6 @@ def delete_regional_egress_by_prefix(
         print("Skipping security group deletion: Security group name (or elements to derive it) and/or vpc_id not provided.")
         sg_deleted = True # Nothing to delete, so considered successful in this context.
 
-    # 3. Delete Subnet
-    subnet_deleted = False
-    subnet_deletion_notes: List[str] = []
-    if subnet_id_to_delete:
-        print(f"Step 3: Deleting subnet '{subnet_id_to_delete}'...")
-        try:
-            ec2_client.delete_subnet(SubnetId=subnet_id_to_delete)
-            subnet_deleted = True
-            subnet_deletion_notes.append(f"Subnet '{subnet_id_to_delete}' deleted successfully.")
-            print(f"Subnet '{subnet_id_to_delete}' deleted successfully.")
-        except Exception as e:
-            # Check if the error is because the subnet is already gone
-            if "does not exist" in str(e).lower() or "notfound" in str(e).lower():
-                msg = f"Subnet '{subnet_id_to_delete}' not found, likely already deleted."
-                print(msg)
-                subnet_deletion_notes.append(msg)
-                subnet_deleted = True # Considered success if it's already gone
-            else:
-                msg = f"Error deleting subnet '{subnet_id_to_delete}': {e}"
-                print(msg)
-                subnet_deletion_notes.append(msg)
-                subnet_deleted = False
-    else:
-        print("Skipping subnet deletion: subnet_id_to_delete not provided.")
-        subnet_deleted = True # Nothing to delete, so considered successful.
-
     # Consolidate results
     all_successful = instance_and_eip_deleted and sg_deleted and subnet_deleted
     result["status"] = "success" if all_successful else "failure"
@@ -739,7 +738,7 @@ def delete_regional_egress_by_prefix(
 
     # Add details of what was attempted/deleted
     result["details"]["instance_id_attempted"] = instance_id
-    result["details"]["prefix_attempted"] = prefix
+    result["details"]["aws_object_name_attempted"] = aws_object_name # Use aws_object_name in details
     result["details"]["region_id_attempted"] = current_region
     result["details"]["sg_name_attempted"] = actual_sg_name_to_delete
     result["details"]["vpc_id_attempted"] = vpc_id

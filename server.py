@@ -2,6 +2,14 @@ import sys
 import logging
 import os # Added for os.environ
 
+# --- Add project root to sys.path ---
+# This allows absolute imports like 'from connexa_openvpn_mcp_server...' to work
+# when server.py is run directly from within the connexa_openvpn_mcp_server directory.
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+# --- End sys.path modification ---
+
 # --- Unique log message to confirm file version ---
 TEMP_SERVER_VERSION_LOG = "SERVER.PY VERSION: 2025-06-07_1530_EXPLICIT_NAMES"
 
@@ -198,10 +206,6 @@ try:
     app.tool()(connexa_api.call_api)
     app.tool()(validate_credentials)
 
-    logger.info("Registering AWS Connector tools...")
-    app.tool()(aws_server_tools.Provision_Connector_tool)
-    app.tool()(aws_server_tools.DeProvision_Connector_tool)
-    logger.info("AWS Connector tools registered.")
 
     logger.info("Registering Connector tools...")
     app.tool()(connector_tools.manage_connector) # Register using the imported module

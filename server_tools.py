@@ -60,10 +60,51 @@ def _get_connector_profile_and_id(connector_id: str, ovpn_region_id: str) -> Tup
         print(f"Error: Profile content is unexpectedly None for connector ID {connector_id}.")
         return None, None
         
-    # The resolved_connector_id for prefixing AWS resources should be derived from the connector ID
-    resolved_connector_id_for_prefix = f"connprefix-{connector_id.replace(' ', '_').lower()}"
+    # After successfully getting the profile, fetch the connector's details to get its name.
+    connector_name: Optional[str] = None
+    try:
+        connector_details_response = call_api(
+            action="get",
+            path=f"/api/v1/networks/connectors/{connector_id}"
+        )
+        if connector_details_response and isinstance(connector_details_response.get("status"), int) and \
+           200 <= connector_details_response["status"] < 300 and connector_details_response.get("data"):
+            
+            connector_data = connector_details_response["data"]
+            if isinstance(connector_data, list) and len(connector_data) > 0:
+                # If the API returns a list, assume the first item is the connector
+                # This can happen if the path was /api/v1/connectors?id={connector_id}
+                # For /api/v1/networks/connectors/{id} it should be a direct object.
+                # Adjusting based on common patterns. If it's a list, take the first.
+                actual_data = connector_data[0] if isinstance(connector_data[0], dict) else {}
+            elif isinstance(connector_data, dict):
+                actual_data = connector_data
+            else:
+                actual_data = {}
+
+            connector_name = actual_data.get("name")
+            if connector_name:
+                print(f"Successfully fetched connector name: '{connector_name}' for connector ID {connector_id}.")
+            else:
+                print(f"Warning: Connector name not found in API response for connector ID {connector_id}. Response data: {connector_data}")
+        else:
+            print(f"Warning: Failed to fetch connector details for connector ID {connector_id}. API response: {connector_details_response}")
+    except Exception as e:
+        print(f"Error: Exception while trying to fetch connector details for ID '{connector_id}': {e}.")
+
+    if connector_name:
+        # Sanitize the connector name for use in AWS resource naming if necessary.
+        # For now, using it directly. Replace spaces and limit length if needed.
+        # Example basic sanitization:
+        # aws_resource_name = "".join(filter(str.isalnum, connector_name.replace(" ", "-")))[:64]
+        aws_resource_name = connector_name
+        print(f"Using connector name '{aws_resource_name}' as base for AWS resources.")
+    else:
+        # Fallback to connector_id if name cannot be fetched or is empty
+        print(f"Warning: Using connector ID '{connector_id}' as base for AWS resources due to missing name.")
+        aws_resource_name = connector_id
     
-    return profile_content, resolved_connector_id_for_prefix
+    return profile_content, aws_resource_name
 
 
 # --- Resource: Available AWS Server Regions ---
@@ -134,10 +175,9 @@ def Provision_Connector_tool(
             "status": "error_aws_credentials"
         }
 
-    # Step 1: Get the OpenVPN profile content and a resolved ID for the OpenVPN Connexa connector.
-    # The resolved ID will be used as a prefix for AWS resource naming.
+    # Step 1: Get the OpenVPN profile content and the base name for AWS resources.
     # Pass the connector_id and a hardcoded ovpn_region_id for profile generation
-    profile_content, resolved_connector_id_for_prefix = _get_connector_profile_and_id(connector_id, "us-west-1") # Hardcoded OVPN region for now
+    profile_content, aws_object_name_for_provisioning = _get_connector_profile_and_id(connector_id, "us-west-1") # Hardcoded OVPN region for now
 
     if profile_content:
         profile_length_kb = len(profile_content.encode('utf-8')) / 1024
@@ -145,7 +185,7 @@ def Provision_Connector_tool(
     else:
         print("Debug: In server_tools.py, after _get_connector_profile_and_id, profile_content is None or empty.")
     
-    if not profile_content or not resolved_connector_id_for_prefix:
+    if not profile_content or not aws_object_name_for_provisioning:
         error_msg = (f"Failed to download/generate OpenVPN profile for connector ID: {connector_id}. "
                        "This could be due to issues resolving the connector or missing parameters "
                        "(like specific OpenVPN User ID or OpenVPN Profile Region ID) required for profile generation. "
@@ -157,7 +197,7 @@ def Provision_Connector_tool(
             "status": "error_profile_generation"
         }
     
-    print(f"Successfully retrieved/generated OpenVPN profile for connector ID '{connector_id}' and resolved connector ID to '{resolved_connector_id_for_prefix}'.")
+    print(f"Successfully retrieved/generated OpenVPN profile for connector ID '{connector_id}'. Using '{aws_object_name_for_provisioning}' as base name for AWS resources.")
 
     # Step 2: Call the upsert_regional_egress function in aws_tools.py.
     try:
@@ -173,10 +213,10 @@ def Provision_Connector_tool(
         else:
             print("Debug: In server_tools.py, before calling upsert_regional_egress, profile_content is None or empty.")
         
-        print(f"Calling upsert_regional_egress with prefix='{resolved_connector_id_for_prefix}', public=True, region_id='{aws_region_id}', OVPN profile provided.")
+        print(f"Calling upsert_regional_egress with aws_object_name='{aws_object_name_for_provisioning}', public=True, region_id='{aws_region_id}', OVPN profile provided.")
         
         egress_result = upsert_regional_egress(
-            prefix=resolved_connector_id_for_prefix,
+            aws_object_name=aws_object_name_for_provisioning,
             public=True,
             region_id=aws_region_id,
             openvpn_profile_content=profile_content
@@ -290,17 +330,16 @@ def DeProvision_Connector_tool( # Renamed from release_aws_instance_tool
             "status": "error_aws_credentials"
         }
 
-    # Derive the prefix from the connector name, consistent with how it's created in Provision_Connector_tool
-    # via _get_connector_profile_and_id which sets resolved_connector_id = f"connprefix-{connector_identifier.replace(' ', '_').lower()}"
-    resolved_prefix = f"connprefix-{connector.replace(' ', '_').lower()}"
-    print(f"Derived prefix for deprovisioning: '{resolved_prefix}' from connector '{connector}'.") # Changed deletion to deprovisioning
+    # The 'connector' parameter is the connector_id (GUID) which will be used as the aws_object_name.
+    aws_object_name_to_delete = connector
+    print(f"Using connector ID '{aws_object_name_to_delete}' as base name for deprovisioning AWS resources.") # Changed deletion to deprovisioning
 
     try:
-        print(f"Calling delete_regional_egress_by_prefix with prefix='{resolved_prefix}', region_id='{aws_region_id}', instance_id=None.")
+        print(f"Calling delete_regional_egress_by_prefix with aws_object_name='{aws_object_name_to_delete}', region_id='{aws_region_id}', instance_id=None.")
 
         deprovision_result = delete_regional_egress_by_prefix( # Changed release_result to deprovision_result
             instance_id=None, # Explicitly pass None for instance_id
-            prefix=resolved_prefix,
+            aws_object_name=aws_object_name_to_delete, # Pass aws_object_name instead of prefix
             region_id=aws_region_id
         )
 
@@ -331,7 +370,7 @@ def DeProvision_Connector_tool( # Renamed from release_aws_instance_tool
             }
         else:
             # delete_regional_egress_by_prefix returned None or an unhandled result
-            error_msg = f"Failed to deprovision regional egress for prefix {resolved_prefix} in region {aws_region_id}. delete_regional_egress_by_prefix returned None or invalid." # Changed release to deprovision
+            error_msg = f"Failed to deprovision regional egress for AWS object name {aws_object_name_to_delete} in region {aws_region_id}. delete_regional_egress_by_prefix returned None or invalid." # Changed release to deprovision
             print(error_msg)
             return {
                 "details": {},
