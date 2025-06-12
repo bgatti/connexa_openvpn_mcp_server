@@ -7,3 +7,4 @@ from . import mcp_ovpn_res
 from . import connector_tools
 from . import selected_object
 from . import creation_tools
+from . import delete_tool

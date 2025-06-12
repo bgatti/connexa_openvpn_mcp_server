@@ -205,7 +205,8 @@ def call_api(action: str, path: str, id: Optional[str] = None, value: Optional[D
             "status": "error", 
             "http_status_code": e.response.status_code if e.response else None, 
             "message": str(e), # Main error message from exception
-            "details": error_json_details if error_json_details else error_detail # Parsed JSON or raw text
+            "details": error_json_details if error_json_details else error_detail, # Parsed JSON or raw text
+            "action": action.upper() # Add the HTTP action here
         }
     except requests.exceptions.RequestException as e:
         error_message = f"Request failed: {e}"
@@ -295,8 +296,8 @@ if __name__ == '__main__':
     if not CM_API_TOKEN and not CM_CLIENT_ID:
         logger.info("Attempting to initialize config_manager from connexa_api.py test block...")
         try:
-            from . import config_manager 
-            if not config_manager.cm_initialize_config(): 
+            from . import config_manager
+            if not config_manager.initialize_config(): 
                  logger.warning("Standalone test: Failed to initialize shared configuration.")
             else:
                  logger.info("Standalone test: config_manager initialized.")

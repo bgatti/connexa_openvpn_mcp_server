@@ -4,7 +4,7 @@ import botocore.exceptions # Added for specific exception handling
 from dotenv import load_dotenv
 from typing import Optional, Dict, Any, List # Import List
 import random # Added for random CIDR generation
-import threading # Added for background EIP association
+import threading # Added for background EIP association and parallel deletion
 
 # Import specific functions from aws_boto3_apis.py
 # Assuming aws_boto3_apis.py is in the same directory
@@ -584,8 +584,7 @@ def _background_post_launch_tasks(region_name: str, instance_id: str, instance_b
         elastic_ip = upsert_elastic_ip(
             ec2_client=thread_ec2_client,
             instance_id=instance_id,
-            base_name_for_eip_tag=instance_base_name_for_eip,
-            prefix=aws_object_name_for_eip # Use aws_object_name for EIP tagging in background task
+            connector_name=aws_object_name_for_eip # aws_object_name_for_eip is the connector name
         )
 
         if elastic_ip:
@@ -647,112 +646,93 @@ def delete_regional_egress_by_prefix(
 
     # 1. Delete EC2 instance and its associated/tagged EIP
     # The instance_base_name is crucial for finding the EIP by tag.
-    instance_and_eip_deleted = True # Default to True if no instance_id is provided
-    instance_deletion_notes: List[str] = []
-    eip_deletion_notes: List[str] = []
-    subnet_deleted = True # Initialize subnet_deleted
-    subnet_deletion_notes: List[str] = [] # Initialize subnet_deletion_notes
-
-
-    if instance_id:
-        print(f"Step 1: Deleting instance {instance_id} and its EIPs (using base_name: {instance_base_name})...")
-        # Pass ec2_client to delete_if_found
-        instance_and_eip_deleted = delete_if_found(
-            ec2_client=ec2_client, # Pass client
-            instance_id=instance_id,
-            prefix=aws_object_name, # Use aws_object_name for deletion targeting
-            base_name_for_eip_tag=instance_base_name
-        )
-        # Assuming delete_if_found returns a boolean
-        if instance_and_eip_deleted:
-             instance_deletion_notes.append(f"Instance {instance_id} and associated EIP processed for deletion.")
-        else:
-             instance_deletion_notes.append(f"Failed to delete instance {instance_id} and/or associated EIP.")
-
-
-    else:
-        print("Step 1: Skipping instance and EIP deletion as no instance_id was provided.")
-        # If instance_id is None, we still might need to clean up tagged EIPs.
-        if aws_object_name and instance_base_name: # instance_base_name is used as base_name_for_eip_tag
-            print(f"Attempting to clean up tagged EIPs for aws_object_name {aws_object_name}, base_name {instance_base_name} even without instance ID.")
-            eip_cleanup_success = delete_if_found( # Assuming delete_if_found can handle instance_id=None
-                ec2_client=ec2_client,
-                instance_id=None, # Explicitly pass None
-                prefix=aws_object_name, # Use aws_object_name for deletion targeting
-                base_name_for_eip_tag=instance_base_name
+    # --- Helper functions for threaded deletion ---
+    def _threaded_delete_instance_and_eip(ec2_client_thread, instance_id_thread, aws_object_name_thread):
+        thread_id = threading.get_ident()
+        print(f"[Thread-{thread_id}] Initiating instance/EIP deletion for instance: {instance_id_thread}, name: {aws_object_name_thread}")
+        try:
+            delete_if_found(
+                ec2_client=ec2_client_thread,
+                instance_id=instance_id_thread,
+                connector_name=aws_object_name_thread
             )
-            instance_and_eip_deleted = eip_cleanup_success # Overall success depends on EIP cleanup if no instance
-            # Assuming delete_if_found returns a boolean
-            if eip_cleanup_success:
-                 eip_deletion_notes.append(f"Tagged EIP cleanup for aws_object_name {aws_object_name}, base_name {instance_base_name} processed.")
-            else:
-                 eip_deletion_notes.append(f"Tagged EIP cleanup for aws_object_name {aws_object_name}, base_name {instance_base_name} encountered issues.")
+            print(f"[Thread-{thread_id}] Instance/EIP deletion process completed for instance: {instance_id_thread}, name: {aws_object_name_thread}")
+        except Exception as e:
+            print(f"[Thread-{thread_id}] Error in instance/EIP deletion thread for instance {instance_id_thread}, name: {aws_object_name_thread}: {e}")
 
-        else:
-            print("Skipping EIP cleanup by tag as aws_object_name or instance_base_name is missing.")
-            instance_and_eip_deleted = True # Nothing to delete, so considered successful in this context.
+    def _threaded_delete_sg(ec2_client_thread, vpc_id_thread, sg_name_thread):
+        thread_id = threading.get_ident()
+        print(f"[Thread-{thread_id}] Initiating security group deletion for SG: {sg_name_thread} in VPC: {vpc_id_thread}")
+        try:
+            delete_security_group_by_name(
+                ec2_client=ec2_client_thread,
+                vpc_id=vpc_id_thread,
+                sg_group_name=sg_name_thread
+            )
+            print(f"[Thread-{thread_id}] Security group deletion process completed for SG: {sg_name_thread}")
+        except Exception as e:
+            print(f"[Thread-{thread_id}] Error in security group deletion thread for SG {sg_name_thread}: {e}")
 
+    # --- Main logic for delete_regional_egress_by_prefix ---
+    threads = []
 
-    # 2. Delete Security Group
-    sg_deleted = False
-    sg_deletion_notes: List[str] = []
-    derived_sg_name = None
-
-    # Derive the security group name using the aws_object_name for deletion targeting
-    if aws_object_name and instance_base_name:
-        derived_sg_name = f"{aws_object_name}_{instance_base_name}_sg"
-        print(f"Derived security group name for deletion: {derived_sg_name}")
-    
-    # Use the derived name if sg_group_name was not explicitly provided
-    actual_sg_name_to_delete = sg_group_name or derived_sg_name
-
-    if actual_sg_name_to_delete and vpc_id:
-        print(f"Step 2: Deleting security group '{actual_sg_name_to_delete}' in VPC '{vpc_id}'...")
-        sg_deleted = delete_security_group_by_name(
-            ec2_client=ec2_client,
-            vpc_id=vpc_id,
-            sg_group_name=actual_sg_name_to_delete
+    # 1. Initiate EC2 instance and EIP deletion in a separate thread
+    if instance_id or aws_object_name: # aws_object_name is needed for tagged EIP cleanup even if no instance_id
+        print(f"Step 1: Initiating deletion of instance '{instance_id}' and/or EIPs tagged '{aws_object_name}' in a background thread...")
+        # Create a new client for the thread to avoid issues with shared clients if any
+        thread_ec2_client_instance_eip = boto3.client('ec2', region_name=current_region)
+        instance_eip_thread = threading.Thread(
+            target=_threaded_delete_instance_and_eip,
+            args=(thread_ec2_client_instance_eip, instance_id, aws_object_name)
         )
-        # Assuming delete_security_group_by_name returns a boolean
-        if sg_deleted:
-            sg_deletion_notes.append(f"Security group '{actual_sg_name_to_delete}' processed for deletion.")
-        else:
-            sg_deletion_notes.append(f"Failed to delete security group '{actual_sg_name_to_delete}' or it was not found/already deleted.")
+        threads.append(instance_eip_thread)
+        instance_eip_thread.start()
+        result["notes"].append(f"Instance '{instance_id}' termination and/or EIPs tagged '{aws_object_name}' deletion initiated in background.")
+    else:
+        result["notes"].append("Skipping instance and EIP deletion as no instance_id or aws_object_name was provided.")
 
-    elif actual_sg_name_to_delete or vpc_id: # Only one of (name or vpc_id) is available and the other is missing
-        msg = f"Warning: Skipping security group deletion. Both security group name ('{actual_sg_name_to_delete}') and vpc_id ('{vpc_id}') must be provided."
+    # 2. Initiate Security Group deletion in a separate thread
+    actual_sg_name_to_delete = sg_group_name or aws_object_name
+    if actual_sg_name_to_delete and vpc_id:
+        print(f"Step 2: Initiating deletion of security group '{actual_sg_name_to_delete}' in VPC '{vpc_id}' in a background thread...")
+        thread_ec2_client_sg = boto3.client('ec2', region_name=current_region)
+        sg_thread = threading.Thread(
+            target=_threaded_delete_sg,
+            args=(thread_ec2_client_sg, vpc_id, actual_sg_name_to_delete)
+        )
+        threads.append(sg_thread)
+        sg_thread.start()
+        result["notes"].append(f"Security group '{actual_sg_name_to_delete}' deletion initiated in background.")
+    elif actual_sg_name_to_delete or vpc_id:
+        msg = f"Warning: Skipping security group deletion initiation. Both security group name ('{actual_sg_name_to_delete}') and vpc_id ('{vpc_id}') must be provided."
         print(msg)
-        sg_deletion_notes.append(msg)
-        sg_deleted = False # Cannot attempt deletion
-    else: # Neither sg_group_name (explicit or derived) nor vpc_id is available
-        print("Skipping security group deletion: Security group name (or elements to derive it) and/or vpc_id not provided.")
-        sg_deleted = True # Nothing to delete, so considered successful in this context.
+        result["notes"].append(msg)
+    else:
+        result["notes"].append("Skipping security group deletion initiation: Security group name (or elements to derive it) and/or vpc_id not provided.")
 
-    # Consolidate results
-    all_successful = instance_and_eip_deleted and sg_deleted and subnet_deleted
-    result["status"] = "success" if all_successful else "failure"
-    result["notes"].extend(instance_deletion_notes)
-    result["notes"].extend(eip_deletion_notes)
-    result["notes"].extend(sg_deletion_notes)
-    result["notes"].extend(subnet_deletion_notes)
+    # Note: Subnet deletion is not currently implemented here. If it were, it would also be a candidate for threading.
+    # For now, subnet_id_to_delete is recorded but not acted upon in this function.
+    if subnet_id_to_delete:
+        result["notes"].append(f"Subnet ID '{subnet_id_to_delete}' was provided, but subnet deletion is not currently performed by this function directly. Manual cleanup may be required if this subnet was created by this tool and is no longer needed.")
+    
+    # Update status to reflect initiation
+    result["status"] = "deletion_initiated"
+    result["notes"].append("AWS resource deletion processes have been initiated in the background. Check AWS console for final status.")
 
-    # Add details of what was attempted/deleted
+    # Add details of what was attempted
     result["details"]["instance_id_attempted"] = instance_id
-    result["details"]["aws_object_name_attempted"] = aws_object_name # Use aws_object_name in details
+    result["details"]["aws_object_name_attempted"] = aws_object_name
     result["details"]["region_id_attempted"] = current_region
     result["details"]["sg_name_attempted"] = actual_sg_name_to_delete
     result["details"]["vpc_id_attempted"] = vpc_id
     result["details"]["subnet_id_attempted"] = subnet_id_to_delete
-    result["details"]["instance_and_eip_deleted"] = instance_and_eip_deleted
-    result["details"]["sg_deleted"] = sg_deleted
-    result["details"]["subnet_deleted"] = subnet_deleted
+    
+    # Optionally, if you want the main function to wait for threads (though this defeats some of the speed-up):
+    # for t in threads:
+    #     t.join()
+    # print("All background deletion threads have completed.")
 
-
-    if result["status"] == "success":
-        print(f"delete_regional_egress for instance {instance_id} completed successfully.")
-    else:
-        print(f"delete_regional_egress for instance {instance_id} completed with issues.")
-        
+    print(f"delete_regional_egress_by_prefix for instance {instance_id}, name {aws_object_name} has initiated background deletion tasks.")
     return result
 
 

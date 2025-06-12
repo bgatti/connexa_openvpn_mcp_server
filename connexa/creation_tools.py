@@ -858,9 +858,9 @@ def create_host_connector_tool(args: CreateHostConnectorArgs) -> Dict[str, Any]:
             logger.info(f"Attempting to provision AWS resources for host connector '{created_name}' (ID: {created_id}).")
 
             # Fetch the OpenVPN profile content for the newly created connector
-            profile_api_path = f"/api/v1/connectors/{created_id}/profile" # Assuming this is the correct API path
+            profile_api_path = f"/api/v1/networks/connectors/{created_id}/profile" # Corrected API path
             logger.info(f"Fetching profile from API: {profile_api_path}")
-            profile_response = call_api(action="get", path=profile_api_path)
+            profile_response = call_api(action="post", path=profile_api_path)
 
             openvpn_profile_content = None
             profile_api_status = profile_response.get("status") if isinstance(profile_response, dict) else None
@@ -1014,35 +1014,52 @@ def create_network_connector_tool(args: CreateNetworkConnectorArgs) -> Dict[str,
 
 
     api_path = f"/api/v1/networks/connectors?networkId={args.network_id}"
-    
+
     try:
         response_data_full = call_api(action="post", path=api_path, value=payload_args)
         logger.info(f"Raw response from call_api in create_network_connector_tool: {response_data_full}")
 
         created_id = None
         created_name = None
-        actual_connector_data = None
+        actual_connector_data = None # Initialize as None
 
-        # The call_api tool wraps the actual API response.
-        # The actual connector data is expected to be in response_data_full["details"]["data"]
+        # Prioritize extracting id and name from the nested 'details.data' field, as seen in the successful response logs.
         if isinstance(response_data_full, dict):
             details_data = response_data_full.get("details")
             if isinstance(details_data, dict):
-                actual_connector_data = details_data.get("data")
-                if isinstance(actual_connector_data, dict):
-                    created_id = actual_connector_data.get("id")
-                    created_name = actual_connector_data.get("name")
+                nested_data = details_data.get("data")
+                if isinstance(nested_data, dict):
+                    created_id = nested_data.get("id")
+                    created_name = nested_data.get("name")
+                    actual_connector_data = nested_data # Use nested data if found there
+
+            # If not found in nested details.data, check if id and name are at the top level or in a top-level 'data' field
+            if not (created_id and created_name):
+                 top_level_data = response_data_full.get("data")
+                 if isinstance(top_level_data, dict):
+                     created_id = top_level_data.get("id")
+                     created_name = top_level_data.get("name")
+                     actual_connector_data = top_level_data # Use top level data if found there
+                 
+                 # If still not found, check the top level directly
+                 if not (created_id and created_name):
+                     created_id = response_data_full.get("id")
+                     created_name = response_data_full.get("name")
+                     if created_id and created_name:
+                         actual_connector_data = response_data_full # Use top level data if found there
+
 
         logger.info(f"After parsing call_api response structure: actual_connector_data={actual_connector_data}, created_id={created_id}, created_name={created_name}")
 
-        if actual_connector_data and created_id and created_name:
-            # Success case: API call was successful and we found id/name in the nested data
+        # Check if ID and name were successfully extracted from any location
+        if created_id and created_name:
+            # Success case: API call was successful and we found id/name
             logger.info(f"Successfully created network connector '{created_name}' (ID: {created_id}). Actual connector data: {actual_connector_data}")
             CURRENT_SELECTED_OBJECT.select(
                 object_type="networkconnector",
                 object_id=created_id,
                 object_name=created_name,
-                details=actual_connector_data
+                details=actual_connector_data if isinstance(actual_connector_data, dict) else {} # Ensure details is a dict
             )
             logger.info(f"Newly created network connector '{created_name}' (ID: {created_id}) has been selected.")
 
@@ -1050,9 +1067,9 @@ def create_network_connector_tool(args: CreateNetworkConnectorArgs) -> Dict[str,
             logger.info(f"Attempting to provision AWS resources for connector '{created_name}' (ID: {created_id}).")
 
             # Fetch the OpenVPN profile content for the newly created connector
-            profile_api_path = f"/api/v1/connectors/{created_id}/profile" # Assuming this is the correct API path
+            profile_api_path = f"/api/v1/networks/connectors/{created_id}/profile" # Corrected API path
             logger.info(f"Fetching profile from API: {profile_api_path}")
-            profile_response = call_api(action="get", path=profile_api_path)
+            profile_response = call_api(action="post", path=profile_api_path)
 
             openvpn_profile_content = None
             profile_api_status = profile_response.get("status") if isinstance(profile_response, dict) else None
@@ -1060,15 +1077,20 @@ def create_network_connector_tool(args: CreateNetworkConnectorArgs) -> Dict[str,
             # Check if status is an integer before comparing
             if isinstance(profile_api_status, int) and 200 <= profile_api_status < 300:
                  openvpn_profile_content = profile_response.get("data")
-                 if openvpn_profile_content:
+                 if openvpn_profile_content and isinstance(openvpn_profile_content, str):
                      logger.info(f"Successfully fetched OpenVPN profile for connector '{created_name}'.")
+                     # Truncate profile content for the response
+                     truncated_profile_content = openvpn_profile_content[:50] + "..." if len(openvpn_profile_content) > 50 else openvpn_profile_content
                  else:
-                     logger.warning(f"Fetched profile data is empty for connector '{created_name}'. Profile API Response: {profile_response}")
+                     logger.warning(f"Fetched profile data is empty or not a string for connector '{created_name}'. Profile API Response: {profile_response}")
+                     truncated_profile_content = "Profile content not available or not a string."
             else:
                  logger.error(f"Failed to fetch OpenVPN profile for connector '{created_name}'. Profile API Response: {profile_response}")
                  # Continue without provisioning if profile fetch fails
+                 truncated_profile_content = f"Error fetching profile: {profile_response.get('message', 'Unknown error')}"
 
-            if openvpn_profile_content:
+
+            if openvpn_profile_content and isinstance(openvpn_profile_content, str): # Only provision if content is a non-empty string
                 # Call the provisioning tool
                 provisioning_result = upsert_regional_egress(
                     aws_object_name=args.name, # Use the user-provided connector name
@@ -1079,15 +1101,31 @@ def create_network_connector_tool(args: CreateNetworkConnectorArgs) -> Dict[str,
                 logger.info(f"Provisioning result for connector '{args.name}': {provisioning_result}")
                 # You might want to include provisioning_result in the return value or log it differently
             else:
-                logger.warning(f"Skipping AWS provisioning for connector '{created_name}' due to missing OpenVPN profile content.")
+                logger.warning(f"Skipping AWS provisioning for connector '{created_name}' due to missing or invalid OpenVPN profile content.")
+                provisioning_result = {"status": "skipped", "message": "Skipped due to missing or invalid OpenVPN profile content."} # Indicate skipped provisioning
 
-            # Return the actual connector data object
-            return actual_connector_data
+
+            # Return a success status, the actual connector data, the provisioning result, and the profile fetch result
+            return {
+                "status": "success",
+                "message": "Network connector created successfully.",
+                "data": actual_connector_data if isinstance(actual_connector_data, dict) else {},
+                "aws_provisioning_result": provisioning_result, # Include provisioning result here
+                "profile_fetch_result": { # Include the full profile fetch response here, but truncate data
+                    "status": profile_response.get("status"),
+                    "data": truncated_profile_content, # Use truncated content here
+                    "message": profile_response.get("message"),
+                    "details": profile_response.get("details"),
+                    "action": profile_response.get("action")
+                }
+            }
         else:
-            # Neither top level nor nested 'data' field contained id/name
+            # ID or name not found after checking both levels
             api_response_status = response_data_full.get("status") if isinstance(response_data_full, dict) else "Unknown"
             logger.warning(f"Network connector '{args.name}' creation API call reported status {api_response_status}, but 'id' or 'name' not found in response (neither top level nor nested 'data'). Full API Response: {response_data_full}")
-            return {"status": "warning", "message": "Network connector created (API success) but ID or name not found in response.", "details": response_data_full}
+            # The original message was "Network connector created (API success) but ID or name not found in response (ver. 1)."
+            # Let's keep a similar message but clarify it wasn't found in the expected locations.
+            return {"status": "warning", "message": "Network connector created (API success) but ID or name not found in expected response locations.", "details": response_data_full}
 
     except Exception as e:
         logger.error(f"Exception during network connector creation for '{args.name}': {e}. Payload: {payload_args}", exc_info=True)

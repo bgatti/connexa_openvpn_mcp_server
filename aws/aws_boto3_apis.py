@@ -36,9 +36,9 @@ def get_latest_amazon_linux_2023_ami_id(ec2_client) -> Optional[str]:
         print(f"Error fetching latest Amazon Linux 2023 AMI ID in region {ec2_client.meta.region_name}: {e}")
         return None
 
-def upsert_elastic_ip(ec2_client, instance_id: str, base_name_for_eip_tag: str, prefix: str) -> Optional[str]:
+def upsert_elastic_ip(ec2_client, instance_id: str, connector_name: str) -> Optional[str]:
     """
-    Finds an existing Elastic IP tagged based on prefix and base_name, or allocates a new one,
+    Finds an existing Elastic IP tagged with connector_name, or allocates a new one,
     and associates it with the instance if not already associated.
     Returns the Elastic IP address.
     """
@@ -53,7 +53,7 @@ def upsert_elastic_ip(ec2_client, instance_id: str, base_name_for_eip_tag: str, 
                 print(f"Instance {instance_id} already associated with Elastic IP: {public_ip} (Allocation ID: {association.get('AllocationId')})")
                 return public_ip
 
-        eip_name_tag_value = prefix
+        eip_name_tag_value = connector_name # EIP is named with the connector name
         allocation_id_to_associate = None
         public_ip_to_associate = None
 
@@ -126,15 +126,15 @@ def upsert_elastic_ip(ec2_client, instance_id: str, base_name_for_eip_tag: str, 
         return None # Fallback
 
     except Exception as e:
-        print(f"Error in upsert_elastic_ip for instance {instance_id} (tag base: {base_name_for_eip_tag}, prefix: {prefix}): {e}")
+        print(f"Error in upsert_elastic_ip for instance {instance_id} (connector_name: {connector_name}): {e}")
         return None
 
-def upsert_named_internet_gateway(ec2_client, vpc_id: str, prefix: str) -> Optional[str]:
+def upsert_named_internet_gateway(ec2_client, vpc_id: str, connector_name: str) -> Optional[str]:
     """
-    Finds or creates an Internet Gateway (named using prefix) and ensures it's attached to the VPC.
+    Finds or creates an Internet Gateway (named using connector_name) and ensures it's attached to the VPC.
     Returns the Internet Gateway ID.
     """
-    igw_name_tag_value = prefix
+    igw_name_tag_value = connector_name # IGW is named with the connector name
     try:
         # Check for an existing IGW attached to the VPC
         igw_response = ec2_client.describe_internet_gateways(
@@ -169,7 +169,7 @@ def upsert_named_internet_gateway(ec2_client, vpc_id: str, prefix: str) -> Optio
                 print(f"Error creating/attaching new Internet Gateway: {create_igw_e}")
                 return None
     except Exception as e:
-        print(f"Error in upsert_named_internet_gateway for VPC {vpc_id} (prefix: {prefix}): {e}")
+        print(f"Error in upsert_named_internet_gateway for VPC {vpc_id} (connector_name: {connector_name}): {e}")
         return None
 
 def upsert_small_ec2_instance(ec2_client: Optional[boto3.client], instance_base_name: str, ami_id: str, prefix: str, instance_type: str = 't3.micro', key_name: Optional[str] = None, security_group_ids: Optional[list] = None, subnet_id: Optional[str] = None, openvpn_profile_content: Optional[str] = None) -> Optional[Dict[str, Optional[str]]]:
@@ -210,8 +210,8 @@ def upsert_small_ec2_instance(ec2_client: Optional[boto3.client], instance_base_
             instance_id = instance['InstanceId']
             public_ip = instance.get('PublicIpAddress')
             print(f"Instance '{instance_name_tag_value}' already exists and is running with ID: {instance_id}")
-            # For EIP, use the instance_base_name and prefix
-            elastic_ip = upsert_elastic_ip(ec2_to_use, instance_id, instance_base_name, prefix)
+            # EIP is named with connector_name (which is 'prefix' in this function's scope)
+            elastic_ip = upsert_elastic_ip(ec2_to_use, instance_id, prefix) # prefix is connector_name
             if elastic_ip:
                 print(f"Instance {instance_id} is now associated with Elastic IP: {elastic_ip}")
                 return {'InstanceId': instance_id, 'PublicIpAddress': elastic_ip}
@@ -223,7 +223,7 @@ def upsert_small_ec2_instance(ec2_client: Optional[boto3.client], instance_base_
                 stop_ec2_instance(ec2_client=ec2_to_use, instance_id=instance_id)
                 start_ec2_instance(ec2_client=ec2_to_use, instance_id=instance_id)
                 # Attempt EIP association again after restart
-                elastic_ip_after_restart = upsert_elastic_ip(ec2_to_use, instance_id, instance_base_name, prefix)
+                elastic_ip_after_restart = upsert_elastic_ip(ec2_to_use, instance_id, prefix) # prefix is connector_name
                 if elastic_ip_after_restart:
                      print(f"Instance {instance_id} (after restart) is now associated with Elastic IP: {elastic_ip_after_restart}")
                      return {'InstanceId': instance_id, 'PublicIpAddress': elastic_ip_after_restart}
@@ -855,17 +855,15 @@ def analyze_nacl_for_subnet(ec2_client, subnet_id: str) -> Dict[str, Any]:
 
     return analysis_result
 
-def delete_if_found(ec2_client: Optional[boto3.client], instance_id: Optional[str], prefix: Optional[str] = None, base_name_for_eip_tag: Optional[str] = None) -> bool:
+def delete_if_found(ec2_client: Optional[boto3.client], instance_id: Optional[str], connector_name: Optional[str] = None) -> bool:
     """
     Terminates an EC2 instance if found and releases its associated Elastic IP.
-    Also cleans up tagged EIPs even if instance_id is None.
-    Accepts an optional ec2_client.
+    Also cleans up EIPs tagged with connector_name even if instance_id is None.
     Accepts an optional ec2_client.
 
     Args:
         instance_id: The ID of the EC2 instance to terminate.
-        prefix: The prefix used for tagging the EIP (optional, used for logging/verification).
-        base_name_for_eip_tag: The base name used for tagging the EIP (optional, used for logging/verification).
+        connector_name: The name used for tagging the EIP (this is the connector's name).
 
     Returns:
         True if the instance was found and termination initiated (and EIP released if applicable),
@@ -914,11 +912,11 @@ def delete_if_found(ec2_client: Optional[boto3.client], instance_id: Optional[st
                                 print(f"Warning: Error releasing direct EIP {direct_eip_public_ip} (AllocID: {direct_eip_alloc_id}): {release_e}")
                     
                     ec2_to_use.terminate_instances(InstanceIds=[instance_id])
-                    waiter = ec2_to_use.get_waiter('instance_terminated')
-                    print(f"Waiting for instance {instance_id} to be terminated...")
-                    waiter.wait(InstanceIds=[instance_id])
-                    print(f"Instance {instance_id} successfully terminated.")
-                    instance_terminated_successfully = True
+                    # waiter = ec2_to_use.get_waiter('instance_terminated') # Removed waiter for non-blocking termination
+                    # print(f"Waiting for instance {instance_id} to be terminated...")
+                    # waiter.wait(InstanceIds=[instance_id]) # Removed waiter for non-blocking termination
+                    print(f"Instance {instance_id} termination initiated.")
+                    instance_terminated_successfully = True # Considered successful if termination is initiated
         except ec2_to_use.exceptions.ClientError as e:
             if 'InvalidInstanceID.NotFound' in str(e):
                 print(f"Instance {instance_id} not found (ClientError). Assuming already deleted.")
@@ -937,8 +935,9 @@ def delete_if_found(ec2_client: Optional[boto3.client], instance_id: Optional[st
 
     # --- Tagged EIP Cleanup ---
     # This runs regardless of instance termination outcome, to catch orphaned EIPs.
-    if prefix and base_name_for_eip_tag:
-        eip_name_tag_value = f"{prefix}_{base_name_for_eip_tag}_eip"
+    if connector_name: # connector_name is used directly as the EIP Name tag
+        eip_name_tag_value = connector_name
+        
         print(f"Searching for and attempting to release Elastic IPs tagged as '{eip_name_tag_value}'...")
         eips_found_and_attempted_release = 0
         eips_successfully_released = 0
@@ -996,7 +995,7 @@ def delete_if_found(ec2_client: Optional[boto3.client], instance_id: Optional[st
             print(f"Error describing addresses by tag '{eip_name_tag_value}': {desc_addr_e}")
             eips_cleaned_successfully = False
     else:
-        print("Skipping EIP cleanup by tag: prefix or base_name_for_eip_tag not provided.")
+        print("Skipping EIP cleanup by tag: connector_name not provided.")
         eips_cleaned_successfully = True # Considered "handled" as it's not applicable.
 
     return instance_terminated_successfully and eips_cleaned_successfully
@@ -1047,135 +1046,4 @@ def delete_security_group_by_name(ec2_client, vpc_id: str, sg_group_name: str) -
         return False
 
 # Example Usage (requires valid AMI ID, key pair, security group, and subnet)
-if __name__ == '__main__':
-    # AWS Credentials and Region should be configured in the environment or AWS config files
-    # However, for testing purposes, you can set them here:
-    # os.environ['AWS_ACCESS_KEY_ID'] = 'AKIAWDDW5WLLZYPCWNNJ'
-    # os.environ['AWS_SECRET_ACCESS_KEY'] = 'YOUR_SECRET_KEY'
-    # os.environ['AWS_DEFAULT_REGION'] = 'us-west-1' 
-
-    ami_id = "ami-07706bb32254a7fe5" # Example AMI ID for Amazon Linux in us-west-1
-    
-    # Define a prefix and base name for testing
-    test_prefix = "clinetest" 
-    base_name = "gateway" # e.g., for a gateway instance, subnet, sg
-
-    # Get default VPC information
-    vpc_info = get_default_vpc_info()
-
-    subnet_id_for_instance = None
-    security_group_ids_for_instance = None
-    instance_info_result = None
-    
-    if vpc_info and 'VpcId' in vpc_info and 'CidrBlock' in vpc_info:
-        vpc_id = vpc_info['VpcId']
-        vpc_cidr_block = vpc_info['CidrBlock']
-
-        # Find or create the gateway subnet using prefix and base_name
-        # The subnet_base_name for upsert_gateway_subnet could be 'public' or 'gateway'
-        created_subnet_id = upsert_gateway_subnet(
-            vpc_id=vpc_id, 
-            subnet_base_name=base_name, # e.g., "gateway" -> "clinetest_gateway_subnet"
-            vpc_cidr_block=vpc_cidr_block, 
-            prefix=test_prefix
-        )
-
-        if created_subnet_id:
-            subnet_id_for_instance = created_subnet_id
-            print(f"Using subnet: {subnet_id_for_instance}")
-        else:
-            print(f"Failed to find or create a gateway subnet with base_name '{base_name}' and prefix '{test_prefix}'. Cannot proceed.")
-
-        # Define ingress rules for the security group
-        ingress_rules = [
-            {
-                'IpProtocol': 'tcp',
-                'FromPort': 22, # SSH
-                'ToPort': 22,
-                'IpRanges': [{'CidrIp': '0.0.0.0/0'}] # Allow SSH from anywhere (for testing)
-            },
-            {
-                'IpProtocol': 'udp',
-                'FromPort': 1194, # OpenVPN UDP
-                'ToPort': 1194,
-                'IpRanges': [{'CidrIp': '0.0.0.0/0'}] # Allow OpenVPN UDP from anywhere (for testing)
-            },
-            {
-                'IpProtocol': 'tcp',
-                'FromPort': 443, # OpenVPN TCP (if used)
-                'ToPort': 443,
-                'IpRanges': [{'CidrIp': '0.0.0.0/0'}] # Allow OpenVPN TCP from anywhere (for testing)
-            }
-        ]
-
-        # Find or create a new security group using prefix and base_name
-        # The sg_base_name for upsert_instance_security_group could be 'app' or 'gateway'
-        created_sg_id = upsert_instance_security_group(
-            vpc_id=vpc_id, 
-            ingress_rules=ingress_rules, 
-            sg_base_name=base_name, # e.g., "gateway" -> "clinetest_gateway_sg"
-            prefix=test_prefix
-        )
-
-        if created_sg_id:
-            security_group_ids_for_instance = [created_sg_id]
-            print(f"Using security group: {security_group_ids_for_instance}")
-        else:
-            print(f"Failed to create or find a security group with base_name '{base_name}' and prefix '{test_prefix}'. Cannot proceed.")
-    else:
-        print("Default VPC information not found. Cannot proceed with resource creation.")
-
-
-    # Key pair name (ensure this key pair exists in your AWS account for the region)
-    key_pair_name = "mcp_openvpn" 
-
-    # Read the OpenVPN profile content from the .ovpn file
-    # Ensure 'featherriverprinter_san_jose_(ca).ovpn' is in the same directory as this script
-    # or provide the correct path.
-    current_script_dir = os.path.dirname(__file__)
-    ovpn_file_name = "featherriverprinter_san_jose_(ca).ovpn" # Make sure this file exists
-    ovpn_file_path = os.path.join(current_script_dir, ovpn_file_name)
-    
-    openvpn_profile_content_data = None
-    if os.path.exists(ovpn_file_path):
-        try:
-            with open(ovpn_file_path, 'r') as f:
-                openvpn_profile_content_data = f.read()
-        except Exception as e:
-            print(f"Error reading OpenVPN profile file '{ovpn_file_path}': {e}")
-    else:
-        print(f"Error: OpenVPN profile file not found at {ovpn_file_path}")
-
-
-    # Proceed with instance creation if all prerequisites are met
-    if openvpn_profile_content_data and subnet_id_for_instance and security_group_ids_for_instance:
-        # The instance_base_name for upsert_small_ec2_instance could be 'my-app-server' or 'vpn-endpoint'
-        instance_info_result = upsert_small_ec2_instance(
-            instance_base_name=base_name, # e.g. "gateway" -> "clinetest_gateway_instance"
-            ami_id=ami_id,
-            prefix=test_prefix,
-            key_name=key_pair_name,
-            security_group_ids=security_group_ids_for_instance,
-            subnet_id=subnet_id_for_instance,
-            openvpn_profile_content=openvpn_profile_content_data
-        )
-
-        if instance_info_result and instance_info_result.get('InstanceId'):
-            print(f"\n--- Instance Upserted Successfully ---")
-            print(f"  Instance Name Tag: {test_prefix}_{base_name}_instance")
-            print(f"  Instance ID: {instance_info_result['InstanceId']}")
-            if instance_info_result.get('PublicIpAddress'):
-                print(f"  Public IP Address (Elastic IP): {instance_info_result['PublicIpAddress']}")
-            else:
-                print("  Instance does not have a public IP address (unexpected).")
-        else:
-            print(f"\n--- Failed to find or create EC2 instance (base_name: {base_name}, prefix: {test_prefix}) ---")
-    else:
-        print("\n--- Missing required information to create EC2 instance ---")
-        if not openvpn_profile_content_data:
-            print("  - OpenVPN profile content is missing or could not be read.")
-        if not subnet_id_for_instance:
-            print("  - Subnet ID could not be determined/created.")
-        if not security_group_ids_for_instance:
-            print("  - Security Group ID(s) could not be determined/created.")
-
+#if __name__ == '__main__':

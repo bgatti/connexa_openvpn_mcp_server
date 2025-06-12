@@ -73,9 +73,8 @@ async def test_create_network_connector(session: ClientSession, actual_network_i
                         elif tool_status or tool_message:
                             logger.info(f"Tool returned status: {tool_status}, message: {tool_message}")
 
-                        # The actual connector data is expected to be in payload_data["details"]["data"]
-                        details_data = payload_data.get("details")
-                        actual_connector_data = details_data.get("data") if isinstance(details_data, dict) else None
+                        # The actual connector data is expected to be in payload_data["data"]
+                        actual_connector_data = payload_data.get("data")
 
                         created_id = None
                         created_name = None
@@ -84,29 +83,32 @@ async def test_create_network_connector(session: ClientSession, actual_network_i
                             created_id = actual_connector_data.get("id")
                             created_name = actual_connector_data.get("name")
 
-                        if created_id and created_name: # Success if id and name are found in the nested data
-                            logger.info(f"Successfully created network connector '{created_name}' with ID: {created_id} (from nested data)")
+                        if created_id and created_name: # Success if id and name are found in the data field
+                            logger.info(f"Successfully created network connector '{created_name}' with ID: {created_id} (from data field)")
+                            logger.info("Adding 30-second delay to allow provisioning to finish...")
+                            await asyncio.sleep(30) # Add delay here
+
                             return created_id, created_name
                         
-                        # If id/name not found in nested data, check for error status in the top-level payload
+                        # If id/name not found in the data field, check for error status in the top-level payload
                         tool_status = payload_data.get("status")
                         tool_message = payload_data.get("message")
 
                         if tool_status == "error":
-                            logger.error(f"Connector '{args.name}' creation failed: Tool reported an error status. Message: {tool_message}. Full Payload: {payload_data}")
+                            logger.error(f"Connector '{args.name}' creation failed (Client Check v2): Tool reported an error status. Message: {tool_message}. Full Payload: {payload_data}")
                             return None, args.name # Return name for context, but ID is None
                         elif tool_status == "warning":
-                             logger.warning(f"Connector '{args.name}' creation: Tool reported a warning status. Message: {tool_message}. Full Payload: {payload_data}")
-                             # Continue to check for nested data even with a warning
+                             logger.warning(f"Connector '{args.name}' creation (Client Check v2): Tool reported a warning status. Message: {tool_message}. Full Payload: {payload_data}")
+                             # Continue to check for data even with a warning
                              if created_id and created_name:
-                                 logger.info(f"Despite warning, found connector ID '{created_id}' and name '{created_name}' in nested data.")
+                                 logger.info(f"Despite warning, found connector ID '{created_id}' and name '{created_name}' in data field.")
                                  return created_id, created_name
                              else:
-                                 logger.error(f"Connector '{args.name}' creation: Tool reported warning, but ID or name not found in nested data. Full Payload: {payload_data}")
+                                 logger.error(f"Connector '{args.name}' creation (Client Check v2): Tool reported warning, but ID or name not found in data field. Full Payload: {payload_data}")
                                  return None, args.name # Return name for context
 
-                        # If neither nested ID/name found nor top-level error/warning, log unexpected format
-                        logger.error(f"Connector '{args.name}' creation: 'id' or 'name' not found in expected nested data or unexpected response format. Response: {payload_data}")
+                        # If neither ID/name found in data nor top-level error/warning, log unexpected format
+                        logger.error(f"Connector '{args.name}' creation (Client Check v2): 'id' or 'name' not found in expected 'data' field or unexpected response format. Response: {payload_data}")
                         return None, args.name # Return name for context
 
                     except json.JSONDecodeError:
@@ -169,6 +171,23 @@ async def main():
             logger.info("MCP ClientSession created. Initializing session...")
             await session.initialize()
             logger.info("Session initialized.")
+
+            # === Validate Credentials ===
+            logger.info("\n--- Validating Credentials ---")
+            validate_result: CallToolResult = await session.call_tool(
+                "validate_credentials",
+                {} # No arguments required for validate_credentials
+            )
+            logger.info(f"Credential validation result: {validate_result}")
+
+            if validate_result.isError:
+                error_message = "Unknown validation error"
+                if validate_result.content and len(validate_result.content) > 0 and isinstance(validate_result.content[0], TextContent):
+                    error_message = validate_result.content[0].text
+                logger.error(f"Credential validation failed: {error_message}. Cannot proceed.")
+                return # Stop execution if validation fails
+            else:
+                logger.info("Credential validation successful.")
 
             logger.info("Waiting a few seconds for server to be ready...")
             await asyncio.sleep(5)
@@ -246,43 +265,6 @@ async def main():
                 
                 if not aws_region_to_use:
                     logger.warning("Neither AWS_REGION nor AWS_DEFAULT_REGION environment variable found. Skipping provisioning step for the connector.")
-                else:
-                    logger.info(f"Using AWS region: {aws_region_to_use} for provisioning.")
-                    logger.info(f"Attempting to provision connector ID: {created_connector_id} (Name: {created_connector_name}) in AWS region: {aws_region_to_use}")
-                    provision_args = {
-                        "connector_id": created_connector_id,
-                        "aws_region_id": aws_region_to_use
-                    }
-                    provision_result: CallToolResult = await session.call_tool(
-                        "Provision_Connector_tool",
-                        provision_args
-                    )
-                    logger.info(f"Raw tool call result from Provision_Connector_tool: {provision_result}")
-                    if not provision_result.isError and provision_result.content and isinstance(provision_result.content[0], TextContent):
-                        try:
-                            provision_data = json.loads(provision_result.content[0].text)
-                            logger.info(f"Provisioning response: {json.dumps(provision_data, indent=2)}")
-                            if provision_data.get("status") and "success" in provision_data.get("status", "").lower():
-                                logger.info(f"Connector '{created_connector_name}' (ID: {created_connector_id}) provisioning initiated successfully. Details: {provision_data.get('details')}")
-                            else:
-                                logger.error(f"Connector '{created_connector_name}' (ID: {created_connector_id}) provisioning failed or status unclear. Status: {provision_data.get('status')}, Message: {provision_data.get('message')}")
-                        except json.JSONDecodeError:
-                            logger.error(f"Failed to parse JSON response from Provision_Connector_tool: {provision_result.content[0].text}")
-                    elif provision_result.isError:
-                        error_text_prov = "Unknown tool error during provisioning"
-                        if provision_result.content and len(provision_result.content) > 0 and isinstance(provision_result.content[0], TextContent):
-                            error_text_prov = provision_result.content[0].text
-                        logger.error(f"Provision_Connector_tool for '{created_connector_name}' (ID: {created_connector_id}) reported an error: {error_text_prov}")
-                    else:
-                        logger.warning(f"Provision_Connector_tool for '{created_connector_name}' (ID: {created_connector_id}) returned no error and no parseable content.")
-
-                    # Add a short delay to allow the background provisioning process to start
-                    # A proper solution would involve polling a status endpoint if available
-                    logger.info("Waiting 30 seconds to allow provisioning process to initiate...")
-                    await asyncio.sleep(30)
-                    logger.info("Wait finished.")
-
-
             elif created_connector_id == ERROR_NETWORK_REQUIRED: # Should not happen if network_id is always passed
                 logger.error(f"Part 2 FAILED: Connector creation failed with '{ERROR_NETWORK_REQUIRED}'. This is unexpected as network_id was provided.")
             elif created_connector_id == ERROR_CONNEXA_REGION_NOT_SET:
