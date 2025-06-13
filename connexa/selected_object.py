@@ -58,15 +58,35 @@ def get_schema_for_object_type(object_type: str, request_type: str = "update") -
 
     if object_type == "network":
         schema_name = "NetworkUpdateRequest" if request_type == "update" else "NetworkCreateRequest"
-    elif object_type == "connector":
-        schema_name = "NetworkConnectorRequest"
-    # Add other object types here
-    # elif object_type == "user":
-    #     schema_name = "UserUpdateRequest" if request_type == "update" else "UserCreateRequest"
-    # elif object_type == "usergroup":
-    #     schema_name = "UserGroupRequest"
+    elif object_type == "connector": # Covers NetworkConnector and HostConnector if they share a schema for update
+        schema_name = "NetworkConnectorRequest" # Assuming NetworkConnectorRequest is used for updates of both
+                                                # or HostConnectorRequest if different and needed for host connectors
+    elif object_type == "user":
+        schema_name = "UserUpdateRequest" if request_type == "update" else "UserCreateRequest"
+    elif object_type == "usergroup":
+        # UserGroupRequest is used for both create and update based on schema.json
+        schema_name = "UserGroupRequest"
+    elif object_type == "host":
+        schema_name = "HostUpdateRequest" if request_type == "update" else "HostCreateRequest"
+    elif object_type == "device":
+        # DeviceRequest is used for both create and update based on schema.json
+        schema_name = "DeviceRequest"
+    elif object_type == "dnsrecord": # dns-record in select_object_tool
+        # DnsRecordRequest is used for both create and update
+        schema_name = "DnsRecordRequest"
+    elif object_type == "accessgroup": # access-group in select_object_tool
+        # AccessGroupRequest is used for both create and update
+        schema_name = "AccessGroupRequest"
+    elif object_type == "locationcontext": # location-context in select_object_tool
+        # LocationContextRequest is used for both create and update
+        schema_name = "LocationContextRequest"
+    elif object_type == "deviceposture": # device-posture in select_object_tool
+        # DevicePostureRequest is used for both create and update
+        schema_name = "DevicePostureRequest"
+    # Add other object types here as needed
 
     if schema_name and schema_name in schemas:
+        logger.info(f"Found schema '{schema_name}' for object_type='{object_type}', request_type='{request_type}'")
         return schemas[schema_name]
 
     logger.warning(f"Schema not found in swagger.json for object_type='{object_type}', request_type='{request_type}' (derived schema_name='{schema_name}')")
@@ -310,7 +330,7 @@ class SelectedObject:
 CURRENT_SELECTED_OBJECT = SelectedObject()
 
 
-def act_on_selected_object(command_name: str, command_args: Optional[Dict[str, Any]] = None) -> Union[str, Dict[str, Any]]:
+async def act_on_selected_object(command_name: str, command_args: Optional[Dict[str, Any]] = None) -> Union[str, Dict[str, Any]]:
     """
     Performs an action (command) on the currently selected object.
     Available commands depend on the selected object's type.
@@ -373,7 +393,7 @@ def act_on_selected_object(command_name: str, command_args: Optional[Dict[str, A
 
 
     try:
-        response = call_api(action=api_method, path=api_path, value=payload, params=query_params)
+        response = await call_api(action=api_method, path=api_path, value=payload, params=query_params)
 
         # After successful DELETE, clear selection
         if api_method.lower() == "delete" and response.get("status", 0) >= 200 and response.get("status", 0) < 300 :
@@ -387,7 +407,7 @@ def act_on_selected_object(command_name: str, command_args: Optional[Dict[str, A
         return f"Error during command execution: {str(e)}"
 
 
-def complete_update_selected(updated_payload: Dict[str, Any]) -> str:
+async def complete_update_selected(updated_payload: Dict[str, Any]) -> str:
     """
     Completes the update process for the currently selected object
     using the provided payload.
@@ -405,11 +425,22 @@ def complete_update_selected(updated_payload: Dict[str, Any]) -> str:
     object_id = CURRENT_SELECTED_OBJECT.object_id
     object_name = CURRENT_SELECTED_OBJECT.object_name # For messages
 
+    # Ensure object_type keys here match the lowercase versions used in select_object_tool and get_schema_for_object_type
     update_path_map = {
         "network": f"/api/v1/networks/{object_id}",
-        "connector": f"/api/v1/networks/connectors/{object_id}",
-        # "user": f"/api/v1/users/{object_id}",
-        # "usergroup": f"/api/v1/user-groups/{object_id}",
+        "connector": f"/api/v1/networks/connectors/{object_id}", # Assumes network connector. Host connector might be different.
+                                                                # The API might have a generic /connectors/{id} or need type detection.
+                                                                # For now, this is the most common connector update path.
+        "user": f"/api/v1/users/{object_id}",
+        "usergroup": f"/api/v1/user-groups/{object_id}",
+        "host": f"/api/v1/hosts/{object_id}",
+        "device": f"/api/v1/devices/{object_id}", # PUT /devices/{id} typically takes DeviceRequest.
+                                                 # If userId is needed in query, this function needs adjustment.
+                                                 # Assuming body is sufficient for now.
+        "dnsrecord": f"/api/v1/dns-records/{object_id}", # Matches "dnsrecord" from get_schema_for_object_type
+        "accessgroup": f"/api/v1/access-groups/{object_id}", # Matches "accessgroup"
+        "locationcontext": f"/api/v1/location-contexts/{object_id}", # Matches "locationcontext"
+        "deviceposture": f"/api/v1/device-postures/{object_id}" # Matches "deviceposture"
     }
 
     if object_type not in update_path_map:
@@ -418,9 +449,11 @@ def complete_update_selected(updated_payload: Dict[str, Any]) -> str:
     api_path = update_path_map[object_type]
 
     try:
-        response = call_api(action="put", path=api_path, value=updated_payload)
+        response = await call_api(action="put", path=api_path, value=updated_payload)
 
-        if isinstance(response, dict) and response.get("status", 0) >= 200 and response.get("status", 0) < 300:
+        # Check if the status is an integer before comparison
+        status_code = response.get("status")
+        if isinstance(response, dict) and isinstance(status_code, int) and 200 <= status_code < 300:
             # Successfully updated. Re-select the object to refresh details.
             new_details = response.get("data", {})
             # The name might have changed if it was part of the payload
@@ -440,7 +473,7 @@ def complete_update_selected(updated_payload: Dict[str, Any]) -> str:
         return f"Error during update execution: {str(e)}"
 
 
-def select_object_tool(object_type: str, name_search: Optional[str] = None, kwargs: Optional[str] = None) -> Dict[str, Any]:
+async def select_object_tool(object_type: str, name_search: Optional[str] = None, kwargs: Optional[str] = None) -> Dict[str, Any]:
     """
     Tool to select an object (e.g., Network, User, Group) by type and optional name search.
 
@@ -578,7 +611,7 @@ def select_object_tool(object_type: str, name_search: Optional[str] = None, kwar
 
 
         logger.info(f"Attempting to fetch {obj_type_lower}(s) using call_api with path='{api_path}' and params='{api_params}'...")
-        api_response = call_api(action="get", path=api_path, params=api_params if api_params else None)
+        api_response = await call_api(action="get", path=api_path, params=api_params if api_params else None)
         logger.info(f"call_api response for {obj_type_lower}(s): {api_response}")
 
         if not isinstance(api_response, dict) or api_response.get("status") != 200:

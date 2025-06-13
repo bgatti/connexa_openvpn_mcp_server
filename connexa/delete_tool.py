@@ -3,7 +3,7 @@ from mcp.server.fastmcp.server import Tool, Context
 from mcp.types import TextContent
 from connexa_openvpn_mcp_server.connexa.selected_object import SelectedObject, CURRENT_SELECTED_OBJECT
 from typing import Dict, Any, Optional, Sequence, Union
-from connexa_openvpn_mcp_server.aws.aws_tools import delete_regional_egress_by_prefix, refresh_aws_credentials_and_region
+from connexa_openvpn_mcp_server.aws.aws_tools import initiate_delete_regional_egress_resources, refresh_aws_credentials_and_region
 import boto3
 from connexa_openvpn_mcp_server.connexa.connexa_api import call_api
 
@@ -109,7 +109,7 @@ async def delete_selected_object(ctx: Context) -> Dict[str, Any]:
                 log_messages.append(f"Deprovisioning AWS instance '{instance_id}' for connector '{object_name}' in region '{aws_region_id}'...")
                 await ctx.info(log_messages[-1])
                 # Call the internal AWS deprovisioning function directly
-                deprovision_result = delete_regional_egress_by_prefix(
+                deprovision_result = initiate_delete_regional_egress_resources(
                     instance_id=instance_id, # Pass instance_id if available
                     aws_object_name=object_name, # Use connector name as aws_object_name
                     region_id=aws_region_id, # Pass the retrieved region ID

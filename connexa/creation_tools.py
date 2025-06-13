@@ -4,7 +4,9 @@ from typing import Any, Dict, List, Optional, Literal
 
 from pydantic import BaseModel, Field
 
-from .connexa_api import call_api
+import httpx
+import json
+from .connexa_api import call_api, get_connexa_base_url, get_connexa_auth_token
 from .selected_object import CURRENT_SELECTED_OBJECT # Import for create_user_tool
 from ..aws.aws_tools import upsert_regional_egress # Import the provisioning tool
 # Removed: from .connector_tools import IpSecConfigRequestModel
@@ -815,7 +817,7 @@ def create_dns_record_tool(args: CreateDnsRecordArgs) -> Dict[str, Any]:
         return {"status": "error", "message": f"Exception during DNS record creation: {error_message}", "details": str(e)}
 
 
-def create_host_connector_tool(args: CreateHostConnectorArgs) -> Dict[str, Any]:
+async def create_host_connector_tool(args: CreateHostConnectorArgs) -> Dict[str, Any]:
     """
     Creates a new Host Connector within a specified Host.
     Corresponds to POST /api/v1/hosts/connectors?hostId={hostId}
@@ -825,12 +827,12 @@ def create_host_connector_tool(args: CreateHostConnectorArgs) -> Dict[str, Any]:
 
     # host_id is part of the query, not the body.
     payload_args = args.model_dump(exclude={"host_id"}, by_alias=True, exclude_none=True)
-    
+
     api_path = f"/api/v1/hosts/connectors?hostId={args.host_id}"
 
     try:
-        response_data = call_api(action="post", path=api_path, value=payload_args)
-        
+        response_data = await call_api(action="post", path=api_path, value=payload_args)
+
         # Check for id and name at the top level first
         created_id = response_data.get("id")
         created_name = response_data.get("name")
@@ -847,7 +849,7 @@ def create_host_connector_tool(args: CreateHostConnectorArgs) -> Dict[str, Any]:
         if created_id and created_name:
             logger.info(f"Successfully created host connector '{created_name}' (ID: {created_id}). API Response: {response_data}")
             CURRENT_SELECTED_OBJECT.select(
-                object_type="hostconnector", 
+                object_type="hostconnector",
                 object_id=created_id,
                 object_name=created_name,
                 details=actual_connector_data if isinstance(actual_connector_data, dict) else {} # Provide default empty dict if None
@@ -860,7 +862,7 @@ def create_host_connector_tool(args: CreateHostConnectorArgs) -> Dict[str, Any]:
             # Fetch the OpenVPN profile content for the newly created connector
             profile_api_path = f"/api/v1/networks/connectors/{created_id}/profile" # Corrected API path
             logger.info(f"Fetching profile from API: {profile_api_path}")
-            profile_response = call_api(action="post", path=profile_api_path)
+            profile_response = await call_api(action="post", path=profile_api_path)
 
             openvpn_profile_content = None
             profile_api_status = profile_response.get("status") if isinstance(profile_response, dict) else None
@@ -1012,12 +1014,54 @@ def create_network_connector_tool(args: CreateNetworkConnectorArgs) -> Dict[str,
     # The body will be built from other fields.
     payload_args = args.model_dump(exclude={"network_id"}, by_alias=True, exclude_none=True)
 
-
     api_path = f"/api/v1/networks/connectors?networkId={args.network_id}"
 
+    base_url = get_connexa_base_url()
+    auth_token = get_connexa_auth_token()
+
+    if not base_url or base_url == "https://your_business_name_here.api.openvpn.com":
+        error_message = "Error: API base URL is not configured."
+        logger.error(error_message)
+        return {"status": "error", "message": error_message}
+
+    if not auth_token:
+        error_message = "Error: API authentication token is not available."
+        logger.error(error_message)
+        return {"status": "error", "message": error_message}
+
+    headers = {
+        "Authorization": f"Bearer {auth_token}",
+        "Accept": "application/json",
+        "Content-Type": "application/json" # Assuming POST always has a JSON body
+    }
+
+    full_url = f"{base_url}{api_path}"
+    response_data_full: Optional[Any] = None
+
+    log_message = f"Attempting API call (unwound in create_network_connector_tool): Action: POST, URL: {full_url}"
+    logger.info(log_message)
+    if payload_args:
+        logger.info(f"  Payload: {json.dumps(payload_args)}")
+
     try:
-        response_data_full = call_api(action="post", path=api_path, value=payload_args)
-        logger.info(f"Raw response from call_api in create_network_connector_tool: {response_data_full}")
+        with httpx.Client() as client:
+            http_response: httpx.Response = client.post(full_url, json=payload_args, headers=headers)
+            http_response.raise_for_status()
+
+            if http_response.content:
+                content_type = http_response.headers.get("Content-Type", "")
+                if "application/json" in content_type:
+                    try:
+                        response_data_full = http_response.json()
+                    except json.JSONDecodeError:
+                        logger.warning(f"Failed to decode JSON response from {full_url}, though Content-Type was application/json. Raw text: {http_response.text[:500]}...")
+                        response_data_full = http_response.text
+                else:
+                    response_data_full = http_response.text
+            else:
+                response_data_full = None
+
+        logger.info(f"Raw response from unwound httpx call: {response_data_full}")
 
         created_id = None
         created_name = None
@@ -1040,7 +1084,7 @@ def create_network_connector_tool(args: CreateNetworkConnectorArgs) -> Dict[str,
                      created_id = top_level_data.get("id")
                      created_name = top_level_data.get("name")
                      actual_connector_data = top_level_data # Use top level data if found there
-                 
+
                  # If still not found, check the top level directly
                  if not (created_id and created_name):
                      created_id = response_data_full.get("id")
@@ -1049,7 +1093,7 @@ def create_network_connector_tool(args: CreateNetworkConnectorArgs) -> Dict[str,
                          actual_connector_data = response_data_full # Use top level data if found there
 
 
-        logger.info(f"After parsing call_api response structure: actual_connector_data={actual_connector_data}, created_id={created_id}, created_name={created_name}")
+        logger.info(f"After parsing httpx response structure: actual_connector_data={actual_connector_data}, created_id={created_id}, created_name={created_name}")
 
         # Check if ID and name were successfully extracted from any location
         if created_id and created_name:
@@ -1069,25 +1113,79 @@ def create_network_connector_tool(args: CreateNetworkConnectorArgs) -> Dict[str,
             # Fetch the OpenVPN profile content for the newly created connector
             profile_api_path = f"/api/v1/networks/connectors/{created_id}/profile" # Corrected API path
             logger.info(f"Fetching profile from API: {profile_api_path}")
-            profile_response = call_api(action="post", path=profile_api_path)
 
-            openvpn_profile_content = None
-            profile_api_status = profile_response.get("status") if isinstance(profile_response, dict) else None
+            profile_full_url = f"{base_url}{profile_api_path}"
+            profile_response_data: Optional[Any] = None
 
-            # Check if status is an integer before comparing
-            if isinstance(profile_api_status, int) and 200 <= profile_api_status < 300:
-                 openvpn_profile_content = profile_response.get("data")
-                 if openvpn_profile_content and isinstance(openvpn_profile_content, str):
-                     logger.info(f"Successfully fetched OpenVPN profile for connector '{created_name}'.")
-                     # Truncate profile content for the response
-                     truncated_profile_content = openvpn_profile_content[:50] + "..." if len(openvpn_profile_content) > 50 else openvpn_profile_content
-                 else:
-                     logger.warning(f"Fetched profile data is empty or not a string for connector '{created_name}'. Profile API Response: {profile_response}")
-                     truncated_profile_content = "Profile content not available or not a string."
-            else:
-                 logger.error(f"Failed to fetch OpenVPN profile for connector '{created_name}'. Profile API Response: {profile_response}")
-                 # Continue without provisioning if profile fetch fails
-                 truncated_profile_content = f"Error fetching profile: {profile_response.get('message', 'Unknown error')}"
+            profile_log_message = f"Attempting API call (unwound profile fetch): Action: POST, URL: {profile_full_url}"
+            logger.info(profile_log_message)
+
+            try:
+                with httpx.Client() as profile_client:
+                    profile_http_response: httpx.Response = profile_client.post(profile_full_url, headers=headers) # No body needed for profile POST
+                    profile_http_response.raise_for_status()
+
+                    if profile_http_response.content:
+                         content_type = profile_http_response.headers.get("Content-Type", "")
+                         if "application/json" in content_type:
+                             try:
+                                 profile_response_data = profile_http_response.json()
+                             except json.JSONDecodeError:
+                                 logger.warning(f"Failed to decode JSON profile response from {profile_full_url}, though Content-Type was application/json. Raw text: {profile_http_response.text[:500]}...")
+                                 profile_response_data = profile_http_response.text
+                         else:
+                             profile_response_data = profile_http_response.text
+                    else:
+                         profile_response_data = None
+
+                openvpn_profile_content = profile_response_data.get("data") if isinstance(profile_response_data, dict) else profile_response_data # Profile content is in 'data' field for JSON, or is the text directly
+
+                if openvpn_profile_content and isinstance(openvpn_profile_content, str):
+                    logger.info(f"Successfully fetched OpenVPN profile for connector '{created_name}'.")
+                    truncated_profile_content = openvpn_profile_content[:50] + "..." if len(openvpn_profile_content) > 50 else openvpn_profile_content
+                else:
+                    logger.warning(f"Fetched profile data is empty or not a string for connector '{created_name}'. Profile Response Data: {profile_response_data}")
+                    truncated_profile_content = "Profile content not available or not a string."
+
+                profile_fetch_result = {
+                    "status": profile_http_response.status_code,
+                    "data": truncated_profile_content,
+                    "message": "Profile fetched successfully." if openvpn_profile_content else "Profile fetched, but content is empty or invalid.",
+                    "details": profile_response_data, # Include full response data for debugging
+                    "action": "POST"
+                }
+
+            except httpx.HTTPStatusError as e:
+                error_detail = e.response.text if e.response else "No response body"
+                error_message = f"HTTP error occurred during profile fetch: {e} - Status: {e.response.status_code if e.response else 'N/A'} - Details: {error_detail[:500]}"
+                logger.error(error_message)
+                error_json_details = None
+                if e.response is not None and "application/json" in e.response.headers.get("Content-Type", ""):
+                    try:
+                        error_json_details = e.response.json()
+                    except json.JSONDecodeError:
+                        pass
+
+                profile_fetch_result = {
+                    "status": "error",
+                    "http_status_code": e.response.status_code if e.response else None,
+                    "message": f"HTTP error fetching profile: {str(e)}",
+                    "details": error_json_details if error_json_details else error_detail,
+                    "action": "POST"
+                }
+                openvpn_profile_content = None # Ensure provisioning is skipped on error
+
+            except httpx.RequestError as e:
+                error_message = f"Request failed during profile fetch: {e}"
+                logger.error(error_message)
+                profile_fetch_result = {"status": "error", "message": f"Request failed fetching profile: {e}", "details": str(e), "action": "POST"}
+                openvpn_profile_content = None # Ensure provisioning is skipped on error
+
+            except Exception as e:
+                error_message = f"An unexpected error occurred during profile fetch: {e}"
+                logger.error(error_message)
+                profile_fetch_result = {"status": "error", "message": f"Unexpected error fetching profile: {e}", "details": str(e), "action": "POST"}
+                openvpn_profile_content = None # Ensure provisioning is skipped on error
 
 
             if openvpn_profile_content and isinstance(openvpn_profile_content, str): # Only provision if content is a non-empty string
@@ -1111,13 +1209,7 @@ def create_network_connector_tool(args: CreateNetworkConnectorArgs) -> Dict[str,
                 "message": "Network connector created successfully.",
                 "data": actual_connector_data if isinstance(actual_connector_data, dict) else {},
                 "aws_provisioning_result": provisioning_result, # Include provisioning result here
-                "profile_fetch_result": { # Include the full profile fetch response here, but truncate data
-                    "status": profile_response.get("status"),
-                    "data": truncated_profile_content, # Use truncated content here
-                    "message": profile_response.get("message"),
-                    "details": profile_response.get("details"),
-                    "action": profile_response.get("action")
-                }
+                "profile_fetch_result": profile_fetch_result # Include the full profile fetch response here
             }
         else:
             # ID or name not found after checking both levels
@@ -1127,6 +1219,28 @@ def create_network_connector_tool(args: CreateNetworkConnectorArgs) -> Dict[str,
             # Let's keep a similar message but clarify it wasn't found in the expected locations.
             return {"status": "warning", "message": "Network connector created (API success) but ID or name not found in expected response locations.", "details": response_data_full}
 
+    except httpx.HTTPStatusError as e:
+        error_detail = e.response.text if e.response else "No response body"
+        error_message = f"HTTP error occurred during connector creation: {e} - Status: {e.response.status_code if e.response else 'N/A'} - Details: {error_detail[:500]}"
+        logger.error(error_message)
+        error_json_details = None
+        if e.response is not None and "application/json" in e.response.headers.get("Content-Type", ""):
+            try:
+                error_json_details = e.response.json()
+            except json.JSONDecodeError:
+                pass
+
+        return {
+            "status": "error",
+            "http_status_code": e.response.status_code if e.response else None,
+            "message": f"HTTP error during connector creation: {str(e)}",
+            "details": error_json_details if error_json_details else error_detail,
+            "action": "POST"
+        }
+    except httpx.RequestError as e:
+        error_message = f"Request failed during connector creation: {e}"
+        logger.error(error_message)
+        return {"status": "error", "message": f"Request failed during connector creation: {e}", "details": str(e), "action": "POST"}
     except Exception as e:
         logger.error(f"Exception during network connector creation for '{args.name}': {e}. Payload: {payload_args}", exc_info=True)
         error_message = str(e)

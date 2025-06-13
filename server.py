@@ -106,10 +106,10 @@ try:
     from connexa_openvpn_mcp_server.connexa import connexa_api
     from connexa_openvpn_mcp_server.connexa import selected_object
     from connexa_openvpn_mcp_server.connexa.delete_tool import delete_selected_object
-    from connexa_openvpn_mcp_server import server_tools as aws_server_tools
+    from connexa_openvpn_mcp_server import server_tools # Renamed for clarity, as it now contains more than just AWS related tools
     from connexa_openvpn_mcp_server.connexa  import creation_tools
 
-    logger.info("Tool modules imported (including connexa_api.py, mcp_ovpn_res.py, aws_server_tools.py, creation_tools.py, and delete_tool.py).")
+    logger.info("Tool modules imported (including connexa_api.py, mcp_ovpn_res.py, server_tools.py, creation_tools.py, and delete_tool.py).")
 
     logger.info("Registering Resources...")
     # Register the new resource. The URI will be derived from the function name
@@ -118,20 +118,22 @@ try:
     app.resource(uri="mcp://resources/user_groups_summary")(mcp_ovpn_res.get_user_groups_resource)
     
 
-    # Register the API overview resource
-    app.resource(uri="mcp://resources/api_overview")(mcp_ovpn_res.get_api_overview_resource)
-    # Register the new api_commands resource
-    app.resource(uri="mcp://resources/api_commands")(mcp_ovpn_res.get_api_commands_resource)
-    # Register the new schema resource (pointing to schema.json content)
-    app.resource(uri="mcp://resources/schema")(mcp_ovpn_res.get_schema_json_resource)
-    # Register the current_selection resource
+    # Register the API overview resource using the synchronous wrapper
+    app.resource(uri="mcp://resources/api_overview")(mcp_ovpn_res.get_api_overview_resource_sync)
+    # Register the new api_commands resource using the synchronous wrapper
+#    app.resource(uri="mcp://resources/api_commands")(mcp_ovpn_res.get_api_commands_resource_sync)
+    # Register the new schema resource (pointing to schema.json content) using the synchronous wrapper
+    app.resource(uri="mcp://resources/schema")(mcp_ovpn_res.get_schema_json_resource_sync)
+    # Register the current_selection resource (already synchronous)
     app.resource(uri="mcp://resources/current_selection")(mcp_ovpn_res.get_current_selection_data)
-    # Register the new creation_schema resources
+    # Register the new creation_schema resources using the synchronous wrappers
     # Route for specific object_type
-    app.resource(uri="mcp://resources/creation_schema/{object_type}")(mcp_ovpn_res.get_creation_schema_resource)
+    app.resource(uri="mcp://resources/creation_schema/{object_type}")(mcp_ovpn_res.get_creation_schema_resource_sync)
     # Route for base URI (no object_type)
-    app.resource(uri="mcp://resources/creation_schema")(mcp_ovpn_res.get_creation_schema_resource_base) # Uses the new wrapper
-    logger.info("Resources registered (including api_commands, schema, current_selection, and creation_schema).")
+    app.resource(uri="mcp://resources/creation_schema")(mcp_ovpn_res.get_creation_schema_resource_base_sync) # Uses the new wrapper
+    # Register the new selected_object_schema resource
+    app.resource(uri="mcp://resources/selected_object_schema")(server_tools.get_selected_object_schema_resource)
+    logger.info("Resources registered (including api_commands, schema, current_selection, creation_schema, and selected_object_schema) using synchronous wrappers.")
 
     logger.info("Registering Custom API tools (from connexa_api.py)...")
 #    app.tool()(connexa_api.call_api)
@@ -140,10 +142,11 @@ try:
     logger.info("Registering Connector tools...")
     logger.info("Connector tools registered.")
 
-    logger.info("Registering Selection tools...")
+    logger.info("Registering Selection and Update tools...")
     app.tool()(selected_object.select_object_tool)
     app.tool()(delete_selected_object)
-    logger.info("Selection tools registered.")
+    app.tool(name="complete_update_selected")(selected_object.complete_update_selected) # Register the new update tool
+    logger.info("Selection and Update tools registered.")
 
     logger.info("Registering Creation tools (from creation_tools.py)...")
     app.tool(name="create_network_tool")(creation_tools.create_network_tool)
@@ -160,7 +163,7 @@ try:
     logger.info(f"Creation tools registration attempted. TEMP_SERVER_VERSION_LOG: {TEMP_SERVER_VERSION_LOG}")
 
     logger.info("Registering AWS Resources...")
-    app.resource(uri="mcp://resources/aws_regions")(aws_server_tools.get_available_aws_regions_resource)
+    app.resource(uri="mcp://resources/aws_regions")(server_tools.get_available_aws_regions_resource) # Use the renamed import
     logger.info("AWS Resources registered.")
 
     logger.info("All tool and resource registrations attempted.")

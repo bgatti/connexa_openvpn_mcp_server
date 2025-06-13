@@ -440,3 +440,24 @@ async def get_creation_schema_resource_base():
     """
     print("get_creation_schema_resource_base: Entered, calling get_creation_schema_resource(object_type=None)", file=sys.stderr)
     return await get_creation_schema_resource(object_type=None)
+
+# Synchronous wrappers for asynchronous resource providers
+def get_api_overview_resource_sync():
+    """Synchronous wrapper for get_api_overview_resource."""
+    return asyncio.run(get_api_overview_resource())
+
+def get_api_commands_resource_sync():
+    """Synchronous wrapper for get_api_commands_resource."""
+    return asyncio.run(get_api_commands_resource())
+
+def get_schema_json_resource_sync():
+    """Synchronous wrapper for get_schema_json_resource."""
+    return asyncio.run(get_schema_json_resource())
+
+def get_creation_schema_resource_sync(object_type: str | None = None):
+    """Synchronous wrapper for get_creation_schema_resource."""
+    return asyncio.run(get_creation_schema_resource(object_type))
+
+def get_creation_schema_resource_base_sync():
+    """Synchronous wrapper for get_creation_schema_resource_base."""
+    return asyncio.run(get_creation_schema_resource_base())

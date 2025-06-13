@@ -4,7 +4,7 @@ import sys # Added for logging
 import logging # Added for logging
 from typing import Optional, Dict, Any, List
 
-import requests
+import httpx
 
 # config_manager.py is now in the same 'connexa' package.
 try:
@@ -88,9 +88,9 @@ def schema(api_group: str) -> List[Dict[str, Any]]:
         logger.error(f"An unexpected error occurred while reading {API_JSON_PATH}: {e}")
         return []
 
-def call_api(action: str, path: str, id: Optional[str] = None, value: Optional[Dict[str, Any]] = None, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def call_api(action: str, path: str, id: Optional[str] = None, value: Optional[Dict[str, Any]] = None, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
-    Calls an API endpoint.
+    Calls an API endpoint asynchronously.
 
     Args:
         action (str): The HTTP action (e.g., "get", "post", "put", "delete").
@@ -153,73 +153,232 @@ def call_api(action: str, path: str, id: Optional[str] = None, value: Optional[D
     if params:
         log_message += f", Params: {params}"
     logger.info(log_message)
-    if value: 
+    if value:
         logger.info(f"  Payload: {json.dumps(value)}")
 
+    async with httpx.AsyncClient() as client:
+        try:
+            http_response: Optional[httpx.Response] = None
+            if action == "get":
+                http_response = await client.get(full_url, headers=headers, params=params)
+            elif action == "post":
+                http_response = await client.post(full_url, json=value, headers=headers, params=params)
+            elif action == "put":
+                http_response = await client.put(full_url, json=value, headers=headers, params=params)
+            elif action == "delete":
+                http_response = await client.delete(full_url, headers=headers, params=params)
+            else:
+                error_message = f"Error: Unsupported action '{action}'."
+                logger.error(error_message)
+                return {"status": "error", "message": error_message}
+
+            http_response.raise_for_status()
+            
+            if http_response.content: # Ensure content exists before trying to parse
+                content_type = http_response.headers.get("Content-Type", "")
+                if "application/json" in content_type:
+                    try:
+                        response_data = http_response.json()
+                    except json.JSONDecodeError:
+                        logger.warning(f"Failed to decode JSON response from {full_url}, though Content-Type was application/json. Raw text: {http_response.text[:500]}...") # Log snippet
+                        response_data = http_response.text # Fallback to text
+                else: # Handle non-JSON responses (e.g. profile download which is text/plain or ovpn)
+                    response_data = http_response.text
+            else: # No content (e.g. 204 No Content)
+                response_data = None
+
+            return {"status": http_response.status_code, "data": response_data}
+
+        except httpx.HTTPStatusError as e:
+            error_detail = e.response.text if e.response else "No response body"
+            error_message = f"HTTP error occurred: {e} - Status: {e.response.status_code if e.response else 'N/A'} - Details: {error_detail[:500]}" # Log snippet
+            logger.error(error_message)
+            # Try to parse error response if JSON
+            error_json_details = None
+            if e.response is not None and "application/json" in e.response.headers.get("Content-Type", ""):
+                try:
+                    error_json_details = e.response.json()
+                except json.JSONDecodeError:
+                    pass # Keep details as text if not parsable JSON
+            
+            return {
+                "status": "error", 
+                "http_status_code": e.response.status_code if e.response else None, 
+                "message": str(e), # Main error message from exception
+                "details": error_json_details if error_json_details else error_detail, # Parsed JSON or raw text
+                "action": action.upper() # Add the HTTP action here
+            }
+        except httpx.RequestError as e:
+            error_message = f"Request failed: {e}"
+            logger.error(error_message)
+            return {"status": "error", "message": error_message}
+        except Exception as e: 
+            error_message = f"An unexpected error occurred during API call: {e}"
+        logger.error(error_message)
+        return {"status": "error", "message": error_message}
+
+def call_api_sync(action: str, path: str, id: Optional[str] = None, value: Optional[Dict[str, Any]] = None, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Calls an API endpoint synchronously by running the async call_api in a new event loop.
+    Use this wrapper ONLY within synchronous contexts where awaiting is not possible.
+    """
+    import asyncio
     try:
-        http_response: Optional[requests.Response] = None
-        if action == "get":
-            http_response = requests.get(full_url, headers=headers, params=params)
-        elif action == "post":
-            http_response = requests.post(full_url, json=value, headers=headers, params=params)
-        elif action == "put":
-            http_response = requests.put(full_url, json=value, headers=headers, params=params)
-        elif action == "delete":
-            http_response = requests.delete(full_url, headers=headers, params=params)
+        # Attempt to get an existing loop, or create a new one if none exists
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        # If there's no running loop, create a new one
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    # Check if the loop is already running
+    if loop.is_running():
+        logger.warning("Running call_api_sync within an already running event loop. This might cause issues.")
+        # If the loop is running, we can't use asyncio.run().
+        # A more robust solution for this scenario would involve submitting the coroutine
+        # to the running loop, but that requires access to the loop object managing the MCP server.
+        # For simplicity and assuming the primary use case is from synchronous tool functions
+        # not nested within other async operations, we'll proceed with asyncio.run()
+        # which implicitly creates and manages a new loop if the current one isn't running.
+        # If the user's feedback persists, this might indicate the MCP framework
+        # is running tools in a way that conflicts with asyncio.run().
+        # For now, let's rely on asyncio.run() which is the standard way to run
+        # a top-level async function from sync code.
+        pass # Let asyncio.run handle loop creation/management
+
+    try:
+        # Use asyncio.run() to execute the async call_api function synchronously
+        # asyncio.run() handles creating a new event loop, running the async function,
+        # and closing the loop. It should be used for top-level entry points.
+        # If the MCP framework is already running an event loop and calling sync tools
+        # from it, asyncio.run() might raise an error or behave unexpectedly.
+        # We'll log a warning if a loop is already running, but proceed with asyncio.run()
+        # as the most standard way to achieve this.
+        logger.info(f"Running async call_api synchronously via asyncio.run() for path: {path}")
+        result = asyncio.run(call_api(action=action, path=path, id=id, value=value, params=params))
+        logger.info(f"call_api_sync completed for path: {path}")
+        return result
+    except Exception as e:
+        logger.error(f"Exception in call_api_sync for path {path}: {e}", exc_info=True)
+        return {"status": "error", "message": f"Synchronous API call failed: {e}", "details": str(e)}
+
+def call_api_sync_httpx(action: str, path: str, id: Optional[str] = None, value: Optional[Dict[str, Any]] = None, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Calls an API endpoint synchronously using httpx.Client.
+    Use this function within synchronous tool functions.
+    """
+    processed_path = path
+
+    if "{id}" in path:
+        if id:
+            processed_path = path.replace("{id}", id)
         else:
-            error_message = f"Error: Unsupported action '{action}'."
+            error_message = "Error: Path expects an {id} but no id was provided."
             logger.error(error_message)
             return {"status": "error", "message": error_message}
 
-        http_response.raise_for_status()
-        
-        if http_response.content: # Ensure content exists before trying to parse
-            content_type = http_response.headers.get("Content-Type", "")
-            if "application/json" in content_type:
-                try:
-                    response_data = http_response.json()
-                except json.JSONDecodeError:
-                    logger.warning(f"Failed to decode JSON response from {full_url}, though Content-Type was application/json. Raw text: {http_response.text[:500]}...") # Log snippet
-                    response_data = http_response.text # Fallback to text
-            else: # Handle non-JSON responses (e.g. profile download which is text/plain or ovpn)
-                response_data = http_response.text
-        else: # No content (e.g. 204 No Content)
-            response_data = None
+    action = action.lower()
+    if action in ["post", "put"]:
+        if value is None and action == "put":
+             error_message = f"Error: Action '{action}' requires a value/payload, but none was provided."
+             logger.error(error_message)
+             return {"status": "error", "message": error_message}
 
+    base_url = get_connexa_base_url()
+    auth_token = get_connexa_auth_token()
 
-        return {"status": http_response.status_code, "data": response_data}
-
-    except requests.exceptions.HTTPError as e:
-        error_detail = e.response.text if e.response else "No response body"
-        error_message = f"HTTP error occurred: {e} - Status: {e.response.status_code if e.response else 'N/A'} - Details: {error_detail[:500]}" # Log snippet
+    if not base_url or base_url == "https://your_business_name_here.api.openvpn.com":
+        error_message = "Error: API base URL is not configured."
         logger.error(error_message)
-        # Try to parse error response if JSON
+        return {"status": "error", "message": error_message}
+    
+    if not auth_token:
+        error_message = "Error: API authentication token is not available."
+        logger.error(error_message)
+        return {"status": "error", "message": error_message}
+
+    headers = {
+        "Authorization": f"Bearer {auth_token}",
+        "Accept": "application/json", 
+    }
+    if action in ["post", "put"] and value is not None:
+        headers["Content-Type"] = "application/json"
+
+    full_url = f"{base_url}{processed_path}"
+    response_data: Optional[Any] = None
+    
+    log_message = f"Attempting API call (from call_api_sync_httpx): Action: {action.upper()}, URL: {full_url}"
+    if params:
+        log_message += f", Params: {params}"
+    logger.info(log_message)
+    if value:
+        logger.info(f"  Payload: {json.dumps(value)}")
+
+    try:
+        # Use httpx.Client for synchronous calls
+        with httpx.Client() as client:
+            http_response: Optional[httpx.Response] = None
+            if action == "get":
+                http_response = client.get(full_url, headers=headers, params=params)
+            elif action == "post":
+                http_response = client.post(full_url, json=value, headers=headers, params=params)
+            elif action == "put":
+                http_response = client.put(full_url, json=value, headers=headers, params=params)
+            elif action == "delete":
+                http_response = client.delete(full_url, headers=headers, params=params)
+            else:
+                error_message = f"Error: Unsupported action '{action}'."
+                logger.error(error_message)
+                return {"status": "error", "message": error_message}
+
+            http_response.raise_for_status()
+            
+            if http_response.content:
+                content_type = http_response.headers.get("Content-Type", "")
+                if "application/json" in content_type:
+                    try:
+                        response_data = http_response.json()
+                    except json.JSONDecodeError:
+                        logger.warning(f"Failed to decode JSON response from {full_url}, though Content-Type was application/json. Raw text: {http_response.text[:500]}...")
+                        response_data = http_response.text
+                else:
+                    response_data = http_response.text
+            else:
+                response_data = None
+
+            return {"status": http_response.status_code, "data": response_data}
+
+    except httpx.HTTPStatusError as e:
+        error_detail = e.response.text if e.response else "No response body"
+        error_message = f"HTTP error occurred: {e} - Status: {e.response.status_code if e.response else 'N/A'} - Details: {error_detail[:500]}"
+        logger.error(error_message)
         error_json_details = None
         if e.response is not None and "application/json" in e.response.headers.get("Content-Type", ""):
             try:
                 error_json_details = e.response.json()
             except json.JSONDecodeError:
-                pass # Keep details as text if not parsable JSON
+                pass
         
         return {
             "status": "error", 
             "http_status_code": e.response.status_code if e.response else None, 
-            "message": str(e), # Main error message from exception
-            "details": error_json_details if error_json_details else error_detail, # Parsed JSON or raw text
-            "action": action.upper() # Add the HTTP action here
+            "message": str(e),
+            "details": error_json_details if error_json_details else error_detail,
+            "action": action.upper()
         }
-    except requests.exceptions.RequestException as e:
+    except httpx.RequestError as e:
         error_message = f"Request failed: {e}"
         logger.error(error_message)
         return {"status": "error", "message": error_message}
     except Exception as e: 
         error_message = f"An unexpected error occurred during API call: {e}"
-        logger.error(error_message)
-        return {"status": "error", "message": error_message}
+    logger.error(error_message)
+    return {"status": "error", "message": error_message}
 
-def find_connector_path_by_id(connector_id_to_find: str) -> Optional[Dict[str, Any]]:
+
+async def find_connector_path_by_id(connector_id_to_find: str) -> Optional[Dict[str, Any]]:
     """
-    Finds a connector by its ID by searching through all networks and their connectors.
+    Finds a connector by its ID by searching through all networks and their connectors. (Async)
 
     Args:
         connector_id_to_find (str): The ID of the connector to find.
@@ -230,7 +389,12 @@ def find_connector_path_by_id(connector_id_to_find: str) -> Optional[Dict[str, A
     """
     logger.info(f"Attempting to find connector with ID: {connector_id_to_find}")
 
-    networks_response = call_api(action="get", path="/api/v1/networks")
+    # find_connector_path_by_id is synchronous and calls call_api, which is now async.
+    # This function will need to be made async as well, or call_api needs a sync wrapper if used in sync contexts.
+    # For now, this will break if called directly from a synchronous context.
+    # A proper fix would involve making the call chain async or providing a sync entry point.
+    # This change is outside the immediate scope of making call_api async, but is a known consequence.
+    networks_response = await call_api(action="get", path="/api/v1/networks")
     if not isinstance(networks_response, dict) or networks_response.get("status") != 200 or not isinstance(networks_response.get("data"), list):
         logger.error(f"Failed to retrieve networks or unexpected format. Response: {networks_response}")
         return None
@@ -253,7 +417,7 @@ def find_connector_path_by_id(connector_id_to_find: str) -> Optional[Dict[str, A
         
         connectors_path = f"/api/v1/networks/{network_id}/connectors"
         # Pass page and size to ensure all connectors are fetched if pagination is used by the endpoint
-        connectors_response = call_api(action="get", path=connectors_path, params={"page": 0, "size": 1000}) 
+        connectors_response = await call_api(action="get", path=connectors_path, params={"page": 0, "size": 1000})
 
         if not isinstance(connectors_response, dict) or connectors_response.get("status") != 200:
             logger.warning(f"Failed to retrieve connectors for network ID {network_id} or unexpected format. Response: {connectors_response}")
@@ -319,23 +483,35 @@ if __name__ == '__main__':
     logger.info("\n--- Testing call_api function (from connexa_api.py, will attempt live calls if config is set) ---")
     
     logger.info("\nTest call_api with path expecting {id} but no id provided (error case):")
-    logger.info(json.dumps(call_api(action="get", path="/api/v1/users/{id}"), indent=2))
+    # logger.info(json.dumps(await call_api(action="get", path="/api/v1/users/{id}"), indent=2)) # Needs to be run in async context
 
     logger.info("\nTest call_api with PUT action without value (error case):")
-    logger.info(json.dumps(call_api(action="put", path="/api/v1/users", id="some-id"), indent=2)) # PUT needs ID and value
+    # logger.info(json.dumps(await call_api(action="put", path="/api/v1/users", id="some-id"), indent=2)) # Needs to be run in async context
     
     # Example of a GET call with params
     # logger.info("\nTest GET /api/v1/users with params (requires valid config):")
-    # result = call_api(action="get", path="/api/v1/users", params={"page": 0, "size": 2})
+    # result = await call_api(action="get", path="/api/v1/users", params={"page": 0, "size": 2}) # Needs to be run in async context
     # logger.info(json.dumps(result, indent=2))
 
     logger.info("\n--- Testing find_connector_path_by_id (requires valid config and existing connector) ---")
+    # This test block will now fail if run directly because find_connector_path_by_id is sync
+    # but calls the async call_api. It needs to be run within an asyncio event loop.
+    # For example:
+    # import asyncio
+    # async def main_test():
+    #     # ... (initialization)
+    #     connector_info = await find_connector_path_by_id(target_connector_id_to_test) # if find_connector_path_by_id is made async
+    #     # or find_connector_path_by_id would need to run call_api in a new loop if it remains sync (not recommended)
+    # asyncio.run(main_test())
+
     # target_connector_id_to_test = "your_target_connector_id_here" 
     # if target_connector_id_to_test != "your_target_connector_id_here":
     #     logger.info(f"Attempting to find connector: {target_connector_id_to_test}")
-    #     connector_info = find_connector_path_by_id(target_connector_id_to_test)
-    #     if connector_info:
-    #         logger.info(f"Found connector: {json.dumps(connector_info, indent=2)}")
+    #     # connector_info = find_connector_path_by_id(target_connector_id_to_test) # This will break
+    #     # To test, you'd need to make find_connector_path_by_id async and await it here within an async main.
+    #     logger.info("Skipping find_connector_path_by_id direct call in __main__ due to async changes.")
+    #     # if connector_info:
+    #     #     logger.info(f"Found connector: {json.dumps(connector_info, indent=2)}")
     #     else:
     #         logger.info(f"Connector {target_connector_id_to_test} not found or error occurred.")
     # else:

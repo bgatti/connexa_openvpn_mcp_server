@@ -4,10 +4,11 @@ from connexa_openvpn_mcp_server.connexa.connexa_api import call_api # Updated to
 
 # Attempt to import from aws_tools.py; these are expected to be implemented there.
 # If aws_tools.py is not yet complete, these will act as placeholders.
+from connexa_openvpn_mcp_server.connexa.selected_object import CURRENT_SELECTED_OBJECT, get_schema_for_object_type
 from connexa_openvpn_mcp_server.aws import aws_tools
 upsert_regional_egress = aws_tools.upsert_regional_egress
-# Add delete_regional_egress_by_prefix
-delete_regional_egress_by_prefix = aws_tools.delete_regional_egress_by_prefix
+# Add initiate_delete_regional_egress_resources
+initiate_delete_regional_egress_resources = aws_tools.initiate_delete_regional_egress_resources
 get_aws_regions = aws_tools.get_aws_regions
 validate_aws_credentials = aws_tools.validate_aws_credentials
 print("Successfully imported functions from aws.aws_tools.")
@@ -335,15 +336,15 @@ def DeProvision_Connector_tool( # Renamed from release_aws_instance_tool
     print(f"Using connector ID '{aws_object_name_to_delete}' as base name for deprovisioning AWS resources.") # Changed deletion to deprovisioning
 
     try:
-        print(f"Calling delete_regional_egress_by_prefix with aws_object_name='{aws_object_name_to_delete}', region_id='{aws_region_id}', instance_id=None.")
+        print(f"Calling initiate_delete_regional_egress_resources with aws_object_name='{aws_object_name_to_delete}', region_id='{aws_region_id}', instance_id=None.")
 
-        deprovision_result = delete_regional_egress_by_prefix( # Changed release_result to deprovision_result
+        deprovision_result = initiate_delete_regional_egress_resources( # Changed release_result to deprovision_result
             instance_id=None, # Explicitly pass None for instance_id
             aws_object_name=aws_object_name_to_delete, # Pass aws_object_name instead of prefix
             region_id=aws_region_id
         )
 
-        if deprovision_result and deprovision_result.get("status") in ["success", "simulated_success"]: # aws_tools might return "success"
+        if deprovision_result and deprovision_result.get("status") in ["success", "simulated_success", "deletion_initiated"]: # aws_tools might return "success" or "deletion_initiated"
             notes = deprovision_result.get("notes", ["AWS resources deprovisioned successfully."]) # Changed released to deprovisioned
             if isinstance(notes, list):
                 notes_str = "; ".join(notes)
@@ -362,15 +363,15 @@ def DeProvision_Connector_tool( # Renamed from release_aws_instance_tool
             else:
                 error_notes_str = str(error_notes)
 
-            print(f"Warning: delete_regional_egress_by_prefix completed with status: {deprovision_result.get('status')}. Result: {deprovision_result}")
+            print(f"Warning: initiate_delete_regional_egress_resources completed with status: {deprovision_result.get('status')}. Result: {deprovision_result}")
             return {
                 "details": deprovision_result.get("details", {}),
                 "notes": error_notes_str,
                 "status": f"warning_aws_deprovision_{deprovision_result.get('status', 'unknown')}" # Changed status
             }
         else:
-            # delete_regional_egress_by_prefix returned None or an unhandled result
-            error_msg = f"Failed to deprovision regional egress for AWS object name {aws_object_name_to_delete} in region {aws_region_id}. delete_regional_egress_by_prefix returned None or invalid." # Changed release to deprovision
+            # initiate_delete_regional_egress_resources returned None or an unhandled result
+            error_msg = f"Failed to deprovision regional egress for AWS object name {aws_object_name_to_delete} in region {aws_region_id}. initiate_delete_regional_egress_resources returned None or invalid." # Changed release to deprovision
             print(error_msg)
             return {
                 "details": {},
@@ -379,7 +380,7 @@ def DeProvision_Connector_tool( # Renamed from release_aws_instance_tool
             }
 
     except Exception as e:
-        error_msg = f"Exception during AWS instance deprovision (calling delete_regional_egress_by_prefix): {str(e)}" # Changed release to deprovision
+        error_msg = f"Exception during AWS instance deprovision (calling initiate_delete_regional_egress_resources): {str(e)}" # Changed release to deprovision
         print(error_msg)
         return {
             "details": {},
@@ -472,3 +473,27 @@ if __name__ == "__main__":
     print("\n--- Testing Complete ---")
     print("To run this module directly from the project root (connexa_openvpn_mcp_server), use:")
     print("python -m connexa_openvpn_mcp_server.server_tools") # Corrected module path
+
+
+# --- Resource: Selected Object Schema ---
+def get_selected_object_schema_resource() -> Optional[Dict[str, Any]]:
+    """
+    Resource provider for the JSON schema of the currently selected object's type.
+    This schema is typically used for update operations.
+    """
+    selected_info = CURRENT_SELECTED_OBJECT.get_selected_object_info()
+    object_type = selected_info.get("type")
+
+    if not object_type:
+        # print("No object selected, cannot retrieve schema.") # Use logger
+        # Consider returning an empty dict or a specific message structure
+        return {"status": "no_selection", "message": "No object is currently selected."}
+
+    # print(f"Retrieving schema for selected object type: {object_type}") # Use logger
+    schema = get_schema_for_object_type(object_type, request_type="update") # Default is "update"
+
+    if schema:
+        return schema
+    else:
+        # print(f"Schema not found for object type: {object_type}") # Use logger
+        return {"status": "not_found", "message": f"Update schema not found for object type: {object_type}."}

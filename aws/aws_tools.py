@@ -597,7 +597,7 @@ def _background_post_launch_tasks(region_name: str, instance_id: str, instance_b
         print(f"[Thread-{threading.get_ident()}] Error in background task for instance {instance_id}: {e}")
 
 
-def delete_regional_egress_by_prefix(
+def initiate_delete_regional_egress_resources(
     instance_id: Optional[str], # Made instance_id optional
     aws_object_name: Optional[str] = None, # Renamed from prefix
     region_id: Optional[str] = None,
@@ -624,7 +624,7 @@ def delete_regional_egress_by_prefix(
         - "notes": A list of notes about the deletion process.
         - "details": A dictionary with details of deleted resources (if available).
     """
-    print(f"Initiating delete_regional_egress for instance ID '{instance_id}', aws_object_name: {aws_object_name}, region: {region_id or 'default'}, subnet: {subnet_id_to_delete}")
+    print(f"Initiating initiate_delete_regional_egress_resources for instance ID '{instance_id}', aws_object_name: {aws_object_name}, region: {region_id or 'default'}, subnet: {subnet_id_to_delete}")
 
     # Load/refresh credentials and set region
     loaded_creds = refresh_aws_credentials_and_region(region_id)
@@ -732,7 +732,7 @@ def delete_regional_egress_by_prefix(
     #     t.join()
     # print("All background deletion threads have completed.")
 
-    print(f"delete_regional_egress_by_prefix for instance {instance_id}, name {aws_object_name} has initiated background deletion tasks.")
+    print(f"initiate_delete_regional_egress_resources for instance {instance_id}, name {aws_object_name} has initiated background deletion tasks.")
     return result
 
 
