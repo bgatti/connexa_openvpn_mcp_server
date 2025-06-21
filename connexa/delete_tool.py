@@ -167,7 +167,7 @@ async def delete_selected_object(ctx: Context) -> Dict[str, Any]:
 
             log_messages.append(f"Calling call_api directly with action 'delete' and path: {connexa_api_path}") # Added logging
             await ctx.info(log_messages[-1])
-            delete_result = call_api(
+            delete_result = await call_api(
                 action="delete",
                 path=connexa_api_path,
                 id=None # ID is already in the path
@@ -213,59 +213,73 @@ async def delete_selected_object(ctx: Context) -> Dict[str, Any]:
                 log_messages.append("object_type is None, cannot determine API path.")
                 await ctx.error(log_messages[-1])
                 return {"status": "error", "message": "Cannot delete object: object type is missing.", "log": log_messages}
-            api_path = f"/api/v1/{object_type.lower()}s/{{id}}" # Pluralize object type and use lowercase
-            if object_type == "user_group": # Handle specific pluralization
-                 api_path = f"/api/v1/user-groups/{{id}}"
-            elif object_type == "dns_record":
-                 api_path = f"/api/v1/dns-records/{{id}}"
-            elif object_type == "access_group":
-                 api_path = f"/api/v1/access-groups/{{id}}"
-            elif object_type == "location_context":
-                 api_path = f"/api/v1/location-contexts/{{id}}"
-            elif object_type == "device_posture":
-                 api_path = f"/api/v1/device-postures/{{id}}"
+
+            # Determine API path based on normalized object type
+            normalized_object_type = object_type.lower().replace("-", "") # Assuming normalize_object_type exists or using simple lower+replace
+            api_path = None
+
+            if normalized_object_type == "network":
+                api_path = f"/api/v1/networks/{{id}}"
+            elif normalized_object_type == "user":
+                api_path = f"/api/v1/users/{{id}}"
+            elif normalized_object_type == "usergroup":
+                api_path = f"/api/v1/user-groups/{{id}}"
+            elif normalized_object_type == "host":
+                api_path = f"/api/v1/hosts/{{id}}"
+            elif normalized_object_type == "dnsrecord":
+                api_path = f"/api/v1/dns-records/{{id}}"
+            elif normalized_object_type == "accessgroup":
+                api_path = f"/api/v1/access-groups/{{id}}"
+            elif normalized_object_type == "locationcontext":
+                api_path = f"/api/v1/location-contexts/{{id}}"
+            elif normalized_object_type == "deviceposture":
+                api_path = f"/api/v1/device-postures/{{id}}"
+            elif normalized_object_type == "device":
+                 # Handle device deletion requiring userId in path
+                 user_id = CURRENT_SELECTED_OBJECT.details.get("userId")
+                 if not user_id:
+                     log_messages.append(f"Cannot delete device '{object_name}': userId is missing from selected object details.")
+                     await ctx.error(log_messages[-1])
+                     return {"status": "error", "message": f"Cannot delete device '{object_name}': userId is missing.", "log": log_messages}
+                 api_path = f"/api/v1/devices/{{id}}?userId={user_id}" # Include userId in path
+            elif normalized_object_type == "networkapplication":
+                 network_id = CURRENT_SELECTED_OBJECT.details.get("networkId") or CURRENT_SELECTED_OBJECT.details.get("network_id")
+                 # The API path for deleting a network application is /api/v1/networks/applications/{id}
+                 api_path = f"/api/v1/networks/applications/{{id}}"
+                 # No need to check for networkId here as it's not in the delete path
+            elif normalized_object_type == "hostapplication":
+                 # The API path for deleting a host application is /api/v1/hosts/applications/{id}
+                 api_path = f"/api/v1/hosts/applications/{{id}}"
+                 # No need to check for hostId here as it's not in the delete path
+            # Note: Connector deletion is handled in the 'if object_type == "connector":' block above.
+
+            if not api_path:
+                 log_messages.append(f"Unsupported object type for deletion: {object_type}.")
+                 await ctx.error(log_messages[-1])
+                 return {"status": "error", "message": f"Unsupported object type for deletion: {object_type}.", "log": log_messages}
+
+            # Format the API path with the object ID
+            formatted_api_path = api_path.format(id=object_id)
+
+            call_api_args = {
+                "action": "delete",
+                "path": formatted_api_path,
+                "id": None # ID is already in the path
+            }
+
 
             # Add logging before call_api
-            log_messages.append(f"Debug: Calling call_api for deletion with path='{api_path}', id='{object_id}'")
+            log_messages.append(f"Debug: Calling call_api for deletion with args: {call_api_args}")
             await ctx.info(log_messages[-1])
 
-            delete_result_list = await ctx.fastmcp.call_tool(
-                name="call_api",
-                arguments={
-                    "action": "delete",
-                    "path": api_path,
-                    "id": object_id
-                }
-            )
+            delete_result = await call_api(**call_api_args)
 
             # Add logging after call_api
-            log_messages.append(f"Debug: call_api deletion result_list: {delete_result_list}")
+            log_messages.append(f"Debug: call_api deletion result: {delete_result}")
             await ctx.info(log_messages[-1])
 
-
-            delete_tool_status = None
-            delete_tool_message = "No details provided"
-            # Assuming call_api returns a status and data/message in a TextContent JSON
-            if delete_result_list and isinstance(delete_result_list, Sequence) and len(delete_result_list) > 0:
-                 first_delete_content = delete_result_list[0]
-                 if isinstance(first_delete_content, TextContent) and first_delete_content.text:
-                     try:
-                         delete_data = json.loads(first_delete_content.text)
-                         delete_tool_status = delete_data.get("status")
-                         delete_tool_message = delete_data.get("message", delete_data.get("notes", delete_tool_message)) # Also check for 'notes'
-                     except json.JSONDecodeError:
-                         log_messages.append("Failed to parse call_api tool result as JSON.")
-                         await ctx.warning(log_messages[-1])
-                         delete_tool_message = first_delete_content.text # Use raw text if JSON parsing fails
-                 else:
-                     log_messages.append(f"Unexpected content type from call_api tool: {type(first_delete_content)}")
-                     await ctx.warning(log_messages[-1])
-                     delete_tool_message = f"Unexpected content type from call_api tool: {type(first_delete_content)}"
-            else:
-                 log_messages.append("call_api tool returned no content.")
-                 await ctx.warning(log_messages[-1])
-                 delete_tool_message = "call_api tool returned no content."
-
+            delete_tool_status = delete_result.get("status")
+            delete_tool_message = delete_result.get("message", delete_result.get("notes", "No details provided"))
 
             if not (isinstance(delete_tool_status, int) and 200 <= delete_tool_status < 300): # Modified success check
                  log_messages.append(f"Failed to delete {object_type} '{object_name}' (ID: {object_id}): API returned status {delete_tool_status}. Message: {delete_tool_message}")

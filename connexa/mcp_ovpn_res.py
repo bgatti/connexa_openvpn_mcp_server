@@ -6,11 +6,12 @@ from mcp.server.fastmcp import FastMCP
 # Removed: from .group_tools import get_user_groups, get_user_group
 from .connexa_api import call_api # Import call_api
 # Import the global selected object instance
-from .selected_object import CURRENT_SELECTED_OBJECT, _get_swagger_content # Import swagger loader
+from .selected_object import CURRENT_SELECTED_OBJECT # Import swagger loader
 from mcp.shared.exceptions import McpError # For error handling
 from mcp.types import ErrorData, INTERNAL_ERROR # For error handling
 import httpx # For making API calls (used by get_regions_resource)
 from typing import Optional # Import Optional
+
 
 # Move user_tools import to top-level for broader access
 # from .. import user_tools # Assuming user_tools.py is in the parent directory of connexa # COMMENTED OUT
@@ -189,62 +190,7 @@ async def get_regions_resource():
     """
     Fetches VPN regions directly using the API client.
     """
-# async def get_regions_resource(): # COMMENTED OUT
-#     """
-#     Fetches VPN regions directly using the API client.
-#     """
-#     print("get_regions_resource: Entered function", file=sys.stderr)
-#     client: httpx.AsyncClient | None = None
-#     try:
-#         # Use the function from the imported module
-#         client = await user_tools.get_async_client()
-#         url = "/api/v1/regions" # Relative URL as base_url is in client
-#         print(f"get_regions_resource: Requesting URL: {client.base_url}{url}", file=sys.stderr)
-#         
-#         response = await client.get(url)
-#         print(f"get_regions_resource: Response status code: {response.status_code}", file=sys.stderr)
-#         response.raise_for_status()
-#         
-#         regions_data = response.json()
-#         print(f"get_regions_resource: Successfully fetched regions data: {type(regions_data)}", file=sys.stderr)
-#         
-#         # Swagger indicates this returns an array of VpnRegionResponse
-#         # We'll return it directly as the value for the "regions" key
-#         if isinstance(regions_data, list):
-#             return {"regions": regions_data}
-#         else:
-#             # This case should ideally not happen if API conforms to swagger
-#             print(f"get_regions_resource: API returned non-list type: {type(regions_data)}", file=sys.stderr)
-#             return {"error": "API returned unexpected data format for regions.", "details": regions_data}
-# 
-#     except McpError: # Re-raise McpError from get_async_client
-#         raise
-#     except httpx.HTTPStatusError as e:
-#         print(f"get_regions_resource: HTTPStatusError: {e.response.status_code} - {e.response.text}", file=sys.stderr)
-#         error_message = f"API request failed with status {e.response.status_code}"
-#         try:
-#             error_details = e.response.json()
-#             error_message += f": {error_details.get('errorMessage', e.response.text)}"
-#         except Exception:
-#             error_message += f": {e.response.text}"
-#         # Return an error dict, as this is a resource function
-#         return {"error": error_message, "status_code": e.response.status_code}
-#     except httpx.RequestError as e:
-#         print(f"get_regions_resource: RequestError: {e}", file=sys.stderr)
-#         return {"error": f"API request failed: {str(e)}"}
-#     except Exception as e:
-#         print(f"get_regions_resource: Unexpected exception: {e}", file=sys.stderr)
-#         # For unexpected errors, also return an error dict
-#         return {"error": f"An unexpected error occurred while fetching regions: {str(e)}"}
-#     finally:
-#         if client:
-#             await client.aclose()
 
-async def get_api_overview_resource():
-    """
-    Provides a high-level overview of the OpenVPN Connexa API components,
-    their relationships, and dependencies based on the swagger.json.
-    """
     # This is a simplified interpretation of swagger.json for overview purposes.
     # A more sophisticated approach would involve deeper parsing of schemas and paths.
     overview = {
@@ -254,57 +200,102 @@ async def get_api_overview_resource():
             {
                 "name": "User",
                 "description": "Represents an individual who can connect to the VPN. Users belong to User Groups and can have multiple Devices.",
-                "relations": ["User Group (belongs to)", "Device (has many)", "Access Group (source)"]
-            },
+                "relations": ["User Group (belongs to)", "Device (has many)", "Access Group (source)"],
+                "selectable": True,
+                "creatable": True
+                },
             {
                 "name": "Device",
                 "description": "A physical or virtual device (computer, phone) associated with a User, used to connect. Device posture policies can apply.",
-                "relations": ["User (belongs to)", "Device Posture (policy applies)"]
+                "relations": ["User (belongs to)", "Device Posture (policy applies)"],
+                "selectable": True,
+                "creatable": True,
+                "notes": "Requires a parent User to be selected for creation."
             },
             {
                 "name": "User Group",
                 "description": "A collection of Users, used to manage settings like VPN region access, internet access policies, and max devices per user. Can be a source in Access Groups.",
-                "relations": ["User (has many)", "VPN Region (access defined)", "Access Group (source)"]
+                "relations": ["User (has many)", "VPN Region (access defined)", "Access Group (source)"],
+                "selectable": True,
+                "creatable": True
             },
             {
                 "name": "Network",
                 "description": "Represents a private network (on-prem or cloud) connected to Cloud Connexa. Contains Connectors, Routes, and IP/Application Services. Can be a destination in Access Groups.",
-                "relations": ["Connector (has many)", "Route (has many)", "IP Service (has many)", "Application (has many)", "Access Group (destination)"]
+                "relations": ["Connector (has many)", "Route (has many)", "IP Service (has many)", "Application (has many)", "Access Group (destination)"],
+                "selectable": True,
+                "creatable": True
             },
             {
                 "name": "Host",
                 "description": "A server within a private network running a Connector. Similar to Network, it can have Connectors and Services. Can be a destination in Access Groups.",
-                "relations": ["Connector (has many)", "IP Service (has many)", "Application (has many)", "Access Group (destination)"]
+                "relations": ["Connector (has many)", "IP Service (has many)", "Application (has many)", "Access Group (destination)"],
+                "selectable": True,
+                "creatable": True
             },
             {
                 "name": "Connector",
                 "description": "A software instance that links a Network or Host to Cloud Connexa. Can be OpenVPN or IPsec type. Profiles can be generated for them.",
-                "relations": ["Network (belongs to) or Host (belongs to)", "VPN Region (connects via)"]
-            },
+                "relations": ["Network (belongs to) or Host (belongs to)"],
+                "selectable": True,
+                "creatable": True,
+                "notes": "Requires a parent Network or Host to be selected for creation."
+                },
             {
                 "name": "Access Group",
                 "description": "Defines access control rules: which 'Sources' (e.g., User Groups, Networks, Hosts) can access which 'Destinations' (e.g., Networks, Hosts, Services). This is central to network segmentation.",
-                "relations": ["User Group (source)", "Network (source/destination)", "Host (source/destination)"]
+                "relations": ["User Group (source)", "Network (source/destination)", "Host (source/destination)"],
+                "selectable": True,
+                "creatable": True
             },
             {
                 "name": "VPN Region",
                 "description": "A geographic point-of-presence for Cloud Connexa servers. User Groups and Connectors are associated with regions.",
-                "relations": ["User Group (access defined)", "Connector (connects via)"]
+                "relations": ["User Group (access defined)", "Connector (connects via)"],
+                "selectable": False, # Not directly selectable by select_object_tool
+                "creatable": False # No direct creation tool
             },
             {
                 "name": "Device Posture",
                 "description": "Policies that define security requirements for Devices to connect (e.g., OS version, antivirus). Applied to User Groups.",
-                "relations": ["Device (applies to)", "User Group (associated via)"]
+                "relations": ["Device (applies to)", "User Group (associated via)"],
+                "selectable": True,
+                "creatable": True
             },
             {
                 "name": "DNS Record",
                 "description": "Manages DNS 'A' records within the Cloud Connexa environment.",
-                "relations": []
+                "relations": [],
+                "selectable": True,
+                "creatable": True
             },
             {
                 "name": "Settings",
                 "description": "Various global and specific settings for the WPC (Wide-area Private Cloud), user defaults, DNS, and authentication.",
-                "relations": []
+                "relations": [],
+                "selectable": False, # Assuming not directly selectable
+                "creatable": False # Assuming no direct creation tool
+            },
+             {
+                "name": "Route",
+                "description": "Defines network routes within a Network.",
+                "relations": ["Network (belongs to)"],
+                "selectable": False, # Not directly selectable
+                "creatable": False # No direct creation tool
+            },
+            {
+                "name": "IP Service",
+                "description": "Represents an IP-based service within a Network or Host.",
+                "relations": ["Network (belongs to) or Host (belongs to)"],
+                "selectable": False, # Not directly selectable
+                "creatable": False # No direct creation tool
+            },
+            {
+                "name": "Application",
+                "description": "Represents an application service within a Network or Host.",
+                "relations": ["Network (belongs to) or Host (belongs to)"],
+                "selectable": False, # Not directly selectable
+                "creatable": False # No direct creation tool
             }
         ],
         "key_interactions_dependencies": [
@@ -318,7 +309,12 @@ async def get_api_overview_resource():
         "inobvious_points": [
             "The distinction between 'Network' and 'Host' allows for different levels of granularity in representing connected resources.",
             "'Internet Access' settings (SPLIT_TUNNEL_ON/OFF, RESTRICTED_INTERNET) for User Groups and Networks significantly impact traffic routing.",
-            "Many 'Settings' endpoints allow fine-tuning of default behaviors for new users, devices, or connections."
+            "Many 'Settings' endpoints allow fine-tuning of default behaviors for new users, devices, or connections.",
+            "VPN Regions, Routes, IP Services, and Applications are not directly selectable or creatable as top-level entities via the current MCP tools, but are managed through their parent Network or Host entities."
+            ],
+        "known_issues": [
+            "The `create_host_tool` may return a warning about ID/name not found in the top-level response, although the data is present in a nested field.",
+            "The `create_device_tool` may fail due to a 'Device limit is exceeded' error for a user, which is an environment limitation based on user group properties rather than a tool issue."
         ]
     }
     return overview
@@ -409,29 +405,238 @@ async def get_creation_schema_resource(object_type: str | None = None):
         print(f"get_creation_schema_resource: {error_msg}", file=sys.stderr)
         return {"error": error_msg, "available_object_types": list(schema_name_map.keys())}
 
-    swagger_data = _get_swagger_content() # Uses the cached loader from selected_object
+    # Placeholder for hardcoded schemas
+    hardcoded_schemas = {
+        "User": {
+            "type": "object",
+            "properties": {
+                "firstName": {
+                    "description": "User's first name.",
+                    "title": "Firstname",
+                    "type": "string"
+                },
+                "lastName": {
+                    "description": "User's last name.",
+                    "title": "Lastname",
+                    "type": "string"
+                },
+                "username": {
+                    "description": "Username for the user. This will be used for login.",
+                    "title": "Username",
+                    "type": "string"
+                },
+                "email": {
+                    "description": "User's email address.",
+                    "title": "Email",
+                    "type": "string"
+                },
+                "groupId": {
+                    "type": "string",
+                    "description": "ID of the group the user belongs to.",
+                    "title": "Groupid"
+                },
+                "role": {
+                    "description": "Role of the user. Must be one of: OWNER, MEMBER, ADMIN.",
+                    "enum": [
+                        "OWNER",
+                        "MEMBER",
+                        "ADMIN"
+                    ],
+                    "title": "Role",
+                    "type": "string"
+                }
+            },
+            "required": [
+                "firstName",
+                "lastName",
+                "username",
+                "email",
+                "groupId", # Made required
+                "role"
+            ],
+            "title": "CreateUserArgs",
+            "type": "object"
+        },
+        "LocationContext": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "description": "Name for the new location context policy.",
+                    "title": "Name",
+                    "type": "string"
+                },
+                "description": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "None"
+                        }
+                    ],
+                    "default": None,
+                    "description": "Optional description.",
+                    "title": "Description"
+                },
+                "userGroupsIds": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "None"
+                        }
+                    ],
+                    "default": None,
+                    "description": "List of user group IDs associated with this policy.",
+                    "title": "Usergroupsids"
+                },
+                "ipCheck": {
+                    "type": "object", # Made required
+                    "properties": {
+                        "allowed": {
+                            "title": "Allowed",
+                            "type": "boolean"
+                        },
+                        "ips": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "None"
+                                }
+                            ],
+                            "default": None,
+                            "description": "List of IP addresses for the record (CIDR format, e.g., '192.168.1.1/32').", # Added note
+                            "title": "Ips"
+                        }
+                    },
+                    "required": [
+                        "allowed"
+                    ],
+                    "title": "IpCheckRequestModel",
+                    "type": "object"
+                },
+                "countryCheck": {
+                    "type": "object", # Made required
+                    "properties": {
+                        "countries": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "None"
+                                }
+                            ],
+                            "default": None,
+                            "title": "Countries"
+                        },
+                        "allowed": {
+                            "title": "Allowed",
+                            "type": "boolean"
+                        }
+                    },
+                    "required": [
+                        "allowed"
+                    ],
+                    "title": "CountryCheckRequestModel",
+                    "type": "object"
+                },
+                "defaultCheck": {
+                    "anyOf": [
+                        {
+                            "type": "object",
+                            "properties": {
+                                "allowed": {
+                                    "title": "Allowed",
+                                    "type": "boolean"
+                                }
+                            },
+                            "required": [
+                                "allowed"
+                            ],
+                            "title": "DefaultCheckRequestModel",
+                            "type": "object"
+                        },
+                        {
+                            "type": "None"
+                        }
+                    ],
+                    "default": None,
+                    "description": "Default check criteria for access."
+                }
+            },
+            "required": [
+                "name",
+                "ipCheck", # Made required
+                "countryCheck" # Made required
+            ],
+            "title": "CreateLocationContextArgs",
+            "type": "object"
+        },
+        "Device": {
+            "type": "object",
+            "properties": {
+                "userId": {
+                    "description": "ID of the User to associate the device with.",
+                    "title": "Userid",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Name for the new device.",
+                    "title": "Name",
+                    "type": "string"
+                },
+                "description": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "None"
+                        }
+                    ],
+                    "default": None,
+                    "description": "Optional description for the device.",
+                    "title": "Description"
+                },
+                "clientUUID": {
+                    "type": "string", # Made required
+                    "description": "Client UUID of the device. Note: Device limits are based on user group properties.", # Added note
+                    "title": "Clientuuid"
+                }
+            },
+            "required": [
+                "userId",
+                "name",
+                "clientUUID" # Made required
+            ],
+            "title": "CreateDeviceArgs",
+            "type": "object"
+        }
+    }
 
-    if not swagger_data or "components" not in swagger_data or "schemas" not in swagger_data["components"]:
-        error_msg = "Swagger content is missing, malformed, or could not be loaded."
-        print(f"get_creation_schema_resource: {error_msg}", file=sys.stderr)
-        return {"error": error_msg}
 
-    schemas = swagger_data["components"]["schemas"]
-    
-    target_schema_name = schema_name_map.get(object_type) # object_type is now guaranteed not to be None here
-
-    if not target_schema_name:
-        error_msg = f"No creation schema mapping found for object_type: '{object_type}'. This should not happen if object_type was validated against available_object_types."
-        print(f"get_creation_schema_resource: {error_msg}", file=sys.stderr)
-        return {"error": error_msg, "available_types": list(schema_name_map.keys())}
-
-    if target_schema_name in schemas:
-        print(f"get_creation_schema_resource: Found schema '{target_schema_name}' for object_type '{object_type}'.", file=sys.stderr)
-        return {"object_type": object_type, "schema_name": target_schema_name, "schema": schemas[target_schema_name]}
+    if object_type in hardcoded_schemas:
+        print(f"get_creation_schema_resource: Returning hardcoded schema for object_type '{object_type}'.", file=sys.stderr)
+        return {"object_type": object_type, "schema_name": f"Create{object_type}Args", "schema": hardcoded_schemas[object_type]}
     else:
-        error_msg = f"Schema '{target_schema_name}' (for object_type '{object_type}') not found in swagger components/schemas."
+        # Fallback or error if schema is not hardcoded
+        error_msg = f"No hardcoded creation schema found for object_type: '{object_type}'. Available hardcoded types: {list(hardcoded_schemas.keys())}"
         print(f"get_creation_schema_resource: {error_msg}", file=sys.stderr)
-        return {"error": error_msg}
+        return {"error": error_msg, "available_types": list(hardcoded_schemas.keys())}
+
 
 async def get_creation_schema_resource_base():
     """
@@ -441,23 +646,153 @@ async def get_creation_schema_resource_base():
     print("get_creation_schema_resource_base: Entered, calling get_creation_schema_resource(object_type=None)", file=sys.stderr)
     return await get_creation_schema_resource(object_type=None)
 
+def get_connexa_overview_resource(mcp: FastMCP):
+    """
+    Provides an overview of registered tools and Connexa VPN object types and their relationships.
+    """
+    print("get_connexa_overview_resource: Entered function", file=sys.stderr)
+    try:
+        # Fetch registered tools and resources
+        tool_names = [tool.name for tool in mcp._tool_manager.list_tools()]
+        resource_uris = [resource.uri for resource in mcp._resource_manager.list_resources()]
+
+        # Include the condensed information about Connexa VPN objects and relationships
+        connexa_objects_overview = {
+            "title": "OpenVPN Connexa API Overview",
+            "description": "The API manages Users, Devices, User Groups, Networks, Hosts, and Access Controls for a VPN infrastructure.",
+            "main_entities": [
+                {
+                    "name": "User",
+                    "description": "Represents an individual who can connect to the VPN. Users belong to User Groups and can have multiple Devices.",
+                    "relations": ["User Group (belongs to)", "Device (has many)", "Access Group (source)"],
+                    "selectable": True,
+                    "creatable": True
+                },
+                {
+                    "name": "Device",
+                    "description": "A physical or virtual device (computer, phone) associated with a User, used to connect. Device posture policies can apply.",
+                    "relations": ["User (belongs to)", "Device Posture (policy applies)"],
+                    "selectable": True,
+                    "creatable": True,
+                    "notes": "Requires a parent User to be selected for creation."
+                },
+                {
+                    "name": "User Group",
+                    "description": "A collection of Users, used to manage settings like VPN region access, internet access policies, and max devices per user. Can be a source in Access Groups.",
+                    "relations": ["User (has many)", "VPN Region (access defined)", "Access Group (source)"],
+                    "selectable": True,
+                    "creatable": True
+                },
+                {
+                    "name": "Network",
+                    "description": "Represents a private network (on-prem or cloud) connected to Cloud Connexa. Contains Connectors, Routes, and IP/Application Services. Can be a destination in Access Groups.",
+                    "relations": ["Connector (has many)", "Route (has many)", "IP Service (has many)", "Application (has many)", "Access Group (destination)"],
+                    "selectable": True,
+                    "creatable": True
+                },
+                {
+                    "name": "Host",
+                    "description": "A server within a private network running a Connector. Similar to Network, it can have Connectors and Services. Can be a destination in Access Groups.",
+                    "relations": ["Connector (has many)", "IP Service (has many)", "Application (has many)", "Access Group (destination)"],
+                    "selectable": True,
+                    "creatable": True
+                },
+                {
+                    "name": "Connector",
+                    "description": "A software instance that links a Network or Host to Cloud Connexa. Can be OpenVPN or IPsec type. Profiles can be generated for them.",
+                    "relations": ["Network (belongs to) or Host (belongs to)"],
+                    "selectable": True,
+                    "creatable": True,
+                    "notes": "Requires a parent Network or Host to be selected for creation."
+                },
+                {
+                    "name": "Access Group",
+                    "description": "Defines access control rules: which 'Sources' (e.g., User Groups, Networks, Hosts) can access which 'Destinations' (e.g., Networks, Hosts, Services). This is central to network segmentation.",
+                    "relations": ["User Group (source)", "Network (source/destination)", "Host (source/destination)"],
+                    "selectable": True,
+                    "creatable": True
+                },
+                {
+                    "name": "VPN Region",
+                    "description": "A geographic point-of-presence for Cloud Connexa servers. User Groups and Connectors are associated with regions.",
+                    "relations": ["User Group (access defined)", "Connector (connects via)"],
+                    "selectable": False, # Not directly selectable by select_object_tool
+                    "creatable": False # No direct creation tool
+                },
+                {
+                    "name": "Device Posture",
+                    "description": "Policies that define security requirements for Devices to connect (e.g., OS version, antivirus). Applied to User Groups.",
+                    "relations": ["Device (applies to)", "User Group (associated via)"],
+                    "selectable": True,
+                    "creatable": True
+                },
+                {
+                    "name": "DNS Record",
+                    "description": "Manages DNS 'A' records within the Cloud Connexa environment.",
+                    "relations": [],
+                    "selectable": True,
+                    "creatable": True
+                },
+                {
+                    "name": "Settings",
+                    "description": "Various global and specific settings for the WPC (Wide-area Private Cloud), user defaults, DNS, and authentication.",
+                    "relations": [],
+                    "selectable": False, # Assuming not directly selectable
+                    "creatable": False # Assuming no direct creation tool
+                },
+                 {
+                    "name": "Route",
+                    "description": "Defines network routes within a Network.",
+                    "relations": ["Network (belongs to)"],
+                    "selectable": False, # Not directly selectable
+                    "creatable": False # No direct creation tool
+                },
+                {
+                    "name": "IP Service",
+                    "description": "Represents an IP-based service within a Network or Host.",
+                    "relations": ["Network (belongs to) or Host (belongs to)"],
+                    "selectable": False, # Not directly selectable
+                    "creatable": False # No direct creation tool
+                },
+                {
+                    "name": "Application",
+                    "description": "Represents an application service within a Network or Host.",
+                    "relations": ["Network (belongs to) or Host (belongs to)"],
+                    "selectable": False, # Not directly selectable
+                    "creatable": False # No direct creation tool
+                }
+            ],
+            "key_interactions_dependencies": [
+                "Users are assigned to User Groups, which dictate many of their permissions and connection parameters.",
+                "Devices are registered to Users. A User can have multiple Devices.",
+                "Access Groups are fundamental for controlling traffic flow, linking sources (like User Groups) to destinations (like Networks or specific services within them).",
+                "Networks and Hosts require Connectors to establish connectivity with the Cloud Connexa VPN.",
+                "Device Posture policies can restrict device connections based on compliance, often applied at the User Group level.",
+                "Authentication (OAuth) is required for API interaction. SAML/LDAP can be used for user authentication into the VPN."
+            ],
+            "inobvious_points": [
+                "The distinction between 'Network' and 'Host' allows for different levels of granularity in representing connected resources.",
+                "'Internet Access' settings (SPLIT_TUNNEL_ON/OFF, RESTRICTED_INTERNET) for User Groups and Networks significantly impact traffic routing.",
+                "Many 'Settings' endpoints allow fine-tuning of default behaviors for new users, devices, or connections.",
+                "VPN Regions, Routes, IP Services, and Applications are not directly selectable or creatable as top-level entities via the current MCP tools, but are managed through their parent Network or Host entities."
+            ],
+            "known_issues": [
+                "The `create_host_tool` may return a warning about ID/name not found in the top-level response, although the data is present in a nested field.",
+                "The `create_device_tool` may fail due to a 'Device limit is exceeded' error for a user, which is an environment limitation based on user group properties rather than a tool issue."
+            ]
+        }
+
+        overview_data = {
+            "registered_tools": tool_names,
+            "registered_resources": resource_uris, # Add registered resources
+            "connexa_objects_overview": connexa_objects_overview
+        }
+
+        print("get_connexa_overview_resource: Returning overview data", file=sys.stderr)
+        return overview_data
+
+    except Exception as e:
+        print(f"get_connexa_overview_resource: Exception: {e}", file=sys.stderr)
+        return {"error": f"An error occurred while generating the overview: {str(e)}"}
+
 # Synchronous wrappers for asynchronous resource providers
-def get_api_overview_resource_sync():
-    """Synchronous wrapper for get_api_overview_resource."""
-    return asyncio.run(get_api_overview_resource())
-
-def get_api_commands_resource_sync():
-    """Synchronous wrapper for get_api_commands_resource."""
-    return asyncio.run(get_api_commands_resource())
-
-def get_schema_json_resource_sync():
-    """Synchronous wrapper for get_schema_json_resource."""
-    return asyncio.run(get_schema_json_resource())
-
-def get_creation_schema_resource_sync(object_type: str | None = None):
-    """Synchronous wrapper for get_creation_schema_resource."""
-    return asyncio.run(get_creation_schema_resource(object_type))
-
-def get_creation_schema_resource_base_sync():
-    """Synchronous wrapper for get_creation_schema_resource_base."""
-    return asyncio.run(get_creation_schema_resource_base())

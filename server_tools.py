@@ -4,7 +4,8 @@ from connexa_openvpn_mcp_server.connexa.connexa_api import call_api # Updated to
 
 # Attempt to import from aws_tools.py; these are expected to be implemented there.
 # If aws_tools.py is not yet complete, these will act as placeholders.
-from connexa_openvpn_mcp_server.connexa.selected_object import CURRENT_SELECTED_OBJECT, get_schema_for_object_type
+from connexa_openvpn_mcp_server.connexa.selected_object import CURRENT_SELECTED_OBJECT
+from connexa_openvpn_mcp_server.connexa.update_tools import get_schema_for_object_type
 from connexa_openvpn_mcp_server.aws import aws_tools
 upsert_regional_egress = aws_tools.upsert_regional_egress
 # Add initiate_delete_regional_egress_resources

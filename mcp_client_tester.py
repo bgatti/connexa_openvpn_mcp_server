@@ -47,7 +47,6 @@ async def main():
     async with AsyncExitStack() as stack:
         try:
             logger.info(f"Initializing stdio client for command: {' '.join(server_command_parts)}")
-            logger.info(f"Server CWD will be: {server_params.cwd}")
             
             stdio_transport = await stack.enter_async_context(
                 stdio_client(server_params)

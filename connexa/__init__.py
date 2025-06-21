@@ -8,3 +8,4 @@ from . import connector_tools
 from . import selected_object
 from . import creation_tools
 from . import delete_tool
+from . import update_tools # Added update_tools import

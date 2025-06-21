@@ -113,7 +113,7 @@ class CreateUserGroupArgs(BaseModel):
     internet_access: Optional[Literal["SPLIT_TUNNEL_ON", "SPLIT_TUNNEL_OFF", "RESTRICTED_INTERNET"]] = Field(None, description="Internet access level.", alias="internetAccess")
     max_device: Optional[int] = Field(None, description="Maximum number of devices allowed per user in this group.", alias="maxDevice")
     connect_auth: Optional[Literal["NO_AUTH", "ON_PRIOR_AUTH", "EVERY_TIME"]] = Field(None, description="Connection authentication mode.", alias="connectAuth")
-    all_regions_included: Optional[bool] = Field(None, description="True if all current and future regions are included by default.", alias="allRegionsIncluded")
+    all_regions_included: Optional[bool] = Field(True, description="True if all current and future regions are included by default.", alias="allRegionsIncluded")
     gateways_ids: Optional[List[str]] = Field(None, description="List of Gateway IDs. Required if internetAccess is SPLIT_TUNNEL_OFF.", alias="gatewaysIds")
 
     class Config:
@@ -290,12 +290,51 @@ def simple_creation_test_function() -> str:
         
 # --- Tool Functions ---
 
-def create_network_tool(args: CreateNetworkArgs) -> Dict[str, Any]:
+async def create_network_tool(args: CreateNetworkArgs) -> Dict[str, Any]:
     """
     Creates a new Network.
     Corresponds to POST /api/v1/networks.
     """
     logger.info(f"Attempting to create network '{args.name}'.")
+
+    # Pre-check for existing network name
+    logger.info(f"Pre-checking if network with name '{args.name}' already exists.")
+    try:
+        list_networks_path = "/api/v1/networks"
+        existing_networks_response = await call_api(action="get", path=list_networks_path)
+
+        if isinstance(existing_networks_response, dict) and \
+           existing_networks_response.get("status") == 200 and \
+           "data" in existing_networks_response:
+            
+            networks_list = existing_networks_response["data"]
+            if isinstance(networks_list, list):
+                for network_item in networks_list:
+                    if isinstance(network_item, dict) and network_item.get("name") == args.name:
+                        error_msg = f"A network with the name '{args.name}' already exists (ID: {network_item.get('id')})."
+                        logger.warning(error_msg)
+                        return {
+                            "status": "error",
+                            "message": error_msg,
+                            "details": {"existing_network_id": network_item.get('id'), "name": args.name}
+                        }
+            else:
+                logger.warning(f"Pre-check for network '{args.name}': Expected a list of networks in 'data', but got {type(networks_list)}. Proceeding with creation attempt.")
+        
+        elif isinstance(existing_networks_response, dict) and "message" in existing_networks_response: # Error response from call_api
+            logger.warning(f"Pre-check for network '{args.name}' failed. API call to list networks returned status {existing_networks_response.get('status')}: {existing_networks_response.get('message')}. Proceeding with creation attempt.")
+        
+        else: # Unexpected response structure from call_api
+             logger.warning(f"Pre-check for network '{args.name}': Unexpected response from call_api when listing networks: {str(existing_networks_response)[:200]}. Proceeding with creation attempt.")
+
+    except Exception as e_check:
+        logger.warning(f"Exception during pre-check for existing network '{args.name}': {str(e_check)[:200]}. Proceeding with creation attempt.")
+    # End of Pre-check
+
+    # Default internetAccess if not provided
+    if args.internet_access is None:
+        logger.info(f"internetAccess not provided for network '{args.name}', defaulting to 'SPLIT_TUNNEL_ON'.")
+        args.internet_access = "SPLIT_TUNNEL_ON" # Set default on the args object
 
     # Use model_dump to handle alias mapping and exclude_none by default
     # This correctly uses the field aliases for the API payload.
@@ -310,7 +349,7 @@ def create_network_tool(args: CreateNetworkArgs) -> Dict[str, Any]:
     api_path = "/api/v1/networks"
     
     try:
-        response_data_full = call_api(action="post", path=api_path, value=payload) # This is the full API response object
+        response_data_full = await call_api(action="post", path=api_path, value=payload) # This is the full API response object
         
         api_response_status = response_data_full.get("status") if isinstance(response_data_full, dict) else "Unknown"
         actual_network_data = response_data_full.get("data") if isinstance(response_data_full, dict) else None
@@ -502,7 +541,209 @@ if __name__ == "__main__":
     logger.info(f"Example CreateUserArgs: {test_user_args.model_dump_json(indent=2, by_alias=True)}")
 
 
-def create_user_tool(args: CreateUserArgs) -> Dict[str, Any]:
+# --- Models for Application Creation ---
+class ApplicationRouteRequestModel(BaseModel):
+    value: str = Field(..., description="The route value, e.g., 'myserver.example.com'.")
+    allow_embedded_ip: Optional[bool] = Field(None, alias="allowEmbeddedIp")
+
+    class Config:
+        populate_by_name = True
+
+class RangeIntegerModel(BaseModel):
+    value: Optional[int] = None
+    lower_value: Optional[int] = Field(None, alias="lowerValue")
+    upper_value: Optional[int] = Field(None, alias="upperValue")
+
+    class Config:
+        populate_by_name = True
+
+class CustomServiceTypeRequestModel(BaseModel):
+    protocol: Literal["TCP", "UDP", "ICMP"]
+    port: Optional[List[RangeIntegerModel]] = None
+    icmp_type: Optional[List[RangeIntegerModel]] = Field(None, alias="icmpType")
+
+    class Config:
+        populate_by_name = True
+
+class ServiceConfigRequestModel(BaseModel):
+    service_types: Optional[List[Literal["ANY","CUSTOM","BGP","DHCP","DNS","FTP","HTTP","HTTPS","IMAP","IMAPS","NTP","POP3","POP3S","SMTP","SMTPS","SNMP","SSH","TELNET","TFTP"]]] = Field(None, alias="serviceTypes")
+    custom_service_types: Optional[List[CustomServiceTypeRequestModel]] = Field(None, alias="customServiceTypes")
+
+    class Config:
+        populate_by_name = True
+
+class CreateNetworkApplicationArgs(BaseModel):
+    network_id: str = Field(..., description="ID of the Network to create the application in.", alias="networkId") # Query param
+    name: str = Field(..., description="Name for the new network application.")
+    description: Optional[str] = Field(None, description="Optional description for the application.")
+    routes: Optional[List[ApplicationRouteRequestModel]] = Field(None, description="List of routes for the application.")
+    config: Optional[ServiceConfigRequestModel] = Field(None, description="Service configuration for the application.")
+
+    class Config:
+        populate_by_name = True
+
+class CreateHostApplicationArgs(BaseModel):
+    host_id: str = Field(..., description="ID of the Host to create the application in.", alias="hostId") # Query param
+    name: str = Field(..., description="Name for the new host application.")
+    description: Optional[str] = Field(None, description="Optional description for the application.")
+    routes: Optional[List[ApplicationRouteRequestModel]] = Field(None, description="List of routes for the application.")
+    config: Optional[ServiceConfigRequestModel] = Field(None, description="Service configuration for the application.")
+
+    class Config:
+        populate_by_name = True
+
+
+# --- Tool Functions ---
+
+async def create_network_application_tool(args: CreateNetworkApplicationArgs) -> Dict[str, Any]:
+    """
+    Creates a new Network Application within a specified Network.
+    Corresponds to POST /api/v1/networks/applications?networkId={networkId}
+    The request body is ApplicationRequest.
+    """
+    logger.info(f"Attempting to create network application '{args.name}' in network '{args.network_id}'.")
+
+    # network_id is part of the query, not the body.
+    payload_args = args.model_dump(exclude={"network_id"}, by_alias=True, exclude_none=True)
+
+    api_path = f"/api/v1/networks/applications?networkId={args.network_id}"
+
+    try:
+        api_response_wrapper = await call_api(action="post", path=api_path, value=payload_args)
+
+        response_status_from_wrapper = api_response_wrapper.get("status")
+        if isinstance(api_response_wrapper, dict) and \
+           isinstance(response_status_from_wrapper, int) and \
+           response_status_from_wrapper >= 200 and \
+           response_status_from_wrapper < 300:
+
+            actual_application_data = api_response_wrapper.get("data")
+
+            if isinstance(actual_application_data, dict):
+                created_id = actual_application_data.get("id")
+                created_name = actual_application_data.get("name")
+
+                if created_id and created_name:
+                    logger.info(f"Successfully created network application '{created_name}' (ID: {created_id}). Application Data: {actual_application_data}")
+                    CURRENT_SELECTED_OBJECT.select(
+                        object_type="networkapplication",
+                        object_id=created_id,
+                        object_name=created_name,
+                        details=actual_application_data
+                    )
+                    logger.info(f"Newly created network application '{created_name}' (ID: {created_id}) has been selected.")
+                    return actual_application_data
+                else:
+                    logger.warning(f"Network application '{args.name}' creation API call successful (status {api_response_wrapper.get('status')}), but 'id' or 'name' not found in the 'data' payload. Actual data: {actual_application_data}. Full API Response from call_api: {api_response_wrapper}")
+                    return {
+                        "status": "warning",
+                        "message": "Network application created (API success) but ID or name not found in its data payload.",
+                        "details": api_response_wrapper
+                    }
+            else:
+                logger.warning(f"Network application '{args.name}' creation API call successful (status {api_response_wrapper.get('status')}), but the 'data' field (actual application data) is not a dictionary. Full API Response from call_api: {api_response_wrapper}")
+                return {
+                    "status": "warning",
+                    "message": "Network application created (API success) but API response data format was unexpected.",
+                    "details": api_response_wrapper
+                }
+        else:
+            logger.error(f"Network application for '{args.name}' creation API call failed or returned unexpected structure. API Response from call_api: {api_response_wrapper}")
+            if isinstance(api_response_wrapper, dict) and "message" in api_response_wrapper:
+                return api_response_wrapper
+            else:
+                return {
+                    "status": "error",
+                    "message": "Network application creation API call failed with an unexpected response structure.",
+                    "details": api_response_wrapper
+                }
+
+    except Exception as e:
+        logger.error(f"Exception during network application creation for '{args.name}': {e}. Payload: {payload_args}", exc_info=True)
+        error_message = str(e)
+        if hasattr(e, 'args') and e.args:
+            if isinstance(e.args[0], dict) and 'message' in e.args[0]:
+                error_message = e.args[0]['message']
+            elif isinstance(e.args[0], str):
+                 error_message = e.args[0]
+        return {"status": "error", "message": f"Exception during network application creation: {error_message}", "details": str(e)}
+
+
+async def create_host_application_tool(args: CreateHostApplicationArgs) -> Dict[str, Any]:
+    """
+    Creates a new Host Application within a specified Host.
+    Corresponds to POST /api/v1/hosts/applications?hostId={hostId}
+    The request body is ApplicationRequest.
+    """
+    logger.info(f"Attempting to create host application '{args.name}' in host '{args.host_id}'.")
+
+    # host_id is part of the query, not the body.
+    payload_args = args.model_dump(exclude={"host_id"}, by_alias=True, exclude_none=True)
+
+    api_path = f"/api/v1/hosts/applications?hostId={args.host_id}"
+
+    try:
+        api_response_wrapper = await call_api(action="post", path=api_path, value=payload_args)
+
+        response_status_from_wrapper = api_response_wrapper.get("status")
+        if isinstance(api_response_wrapper, dict) and \
+           isinstance(response_status_from_wrapper, int) and \
+           response_status_from_wrapper >= 200 and \
+           response_status_from_wrapper < 300:
+
+            actual_application_data = api_response_wrapper.get("data")
+
+            if isinstance(actual_application_data, dict):
+                created_id = actual_application_data.get("id")
+                created_name = actual_application_data.get("name")
+
+                if created_id and created_name:
+                    logger.info(f"Successfully created host application '{created_name}' (ID: {created_id}). Application Data: {actual_application_data}")
+                    CURRENT_SELECTED_OBJECT.select(
+                        object_type="hostapplication",
+                        object_id=created_id,
+                        object_name=created_name,
+                        details=actual_application_data
+                    )
+                    logger.info(f"Newly created host application '{created_name}' (ID: {created_id}) has been selected.")
+                    return actual_application_data
+                else:
+                    logger.warning(f"Host application '{args.name}' creation API call successful (status {api_response_wrapper.get('status')}), but 'id' or 'name' not found in the 'data' payload. Actual data: {actual_application_data}. Full API Response from call_api: {api_response_wrapper}")
+                    return {
+                        "status": "warning",
+                        "message": "Host application created (API success) but ID or name not found in its data payload.",
+                        "details": api_response_wrapper
+                    }
+            else:
+                logger.warning(f"Host application '{args.name}' creation API call successful (status {api_response_wrapper.get('status')}), but the 'data' field (actual application data) is not a dictionary. Full API Response from call_api: {api_response_wrapper}")
+                return {
+                    "status": "warning",
+                    "message": "Host application created (API success) but API response data format was unexpected.",
+                    "details": api_response_wrapper
+                }
+        else:
+            logger.error(f"Host application for '{args.name}' creation API call failed or returned unexpected structure. API Response from call_api: {api_response_wrapper}")
+            if isinstance(api_response_wrapper, dict) and "message" in api_response_wrapper:
+                return api_response_wrapper
+            else:
+                return {
+                    "status": "error",
+                    "message": "Host application creation API call failed with an unexpected response structure.",
+                    "details": api_response_wrapper
+                }
+
+    except Exception as e:
+        logger.error(f"Exception during host application creation for '{args.name}': {e}. Payload: {payload_args}", exc_info=True)
+        error_message = str(e)
+        if hasattr(e, 'args') and e.args:
+            if isinstance(e.args[0], dict) and 'message' in e.args[0]:
+                error_message = e.args[0]['message']
+            elif isinstance(e.args[0], str):
+                 error_message = e.args[0]
+        return {"status": "error", "message": f"Exception during host application creation: {error_message}", "details": str(e)}
+
+
+async def create_user_tool(args: CreateUserArgs) -> Dict[str, Any]:
     """
     Creates a new User.
     Corresponds to POST /api/v1/users.
@@ -521,8 +762,9 @@ def create_user_tool(args: CreateUserArgs) -> Dict[str, Any]:
         selected_info = CURRENT_SELECTED_OBJECT.get_selected_object_info()
         logger.info(f"create_user_tool: selected_info from CURRENT_SELECTED_OBJECT: {selected_info}")
 
-        # Check if a usergroup is selected and has an ID
-        if selected_info and selected_info.get("type") == "usergroup" and selected_info.get("id"):
+        # Check if a usergroup is selected and has an ID, using normalized type for comparison
+        selected_type = selected_info.get("type") if selected_info else None
+        if selected_info and selected_type and normalize_object_type(selected_type) == "usergroup" and selected_info.get("id"):
             final_group_id = selected_info["id"]
             logger.info(f"Using groupId '{final_group_id}' from selected user group '{selected_info.get('name')}'.")
         else:
@@ -554,13 +796,51 @@ def create_user_tool(args: CreateUserArgs) -> Dict[str, Any]:
     # For now, direct dict is fine.
     payload = api_payload # Using the directly constructed dict
 
+    # Pre-check for existing username
+    logger.info(f"Pre-checking if user with username '{args.username}' already exists.")
+    try:
+        list_users_path = "/api/v1/users"
+        existing_users_response = await call_api(action="get", path=list_users_path)
+
+        if isinstance(existing_users_response, dict) and \
+           existing_users_response.get("status") == 200 and \
+           "data" in existing_users_response:
+            
+            users_list = existing_users_response["data"]
+            if isinstance(users_list, list):
+                for user_item in users_list:
+                    if isinstance(user_item, dict) and user_item.get("username") == args.username:
+                        error_msg = f"A user with the username '{args.username}' already exists (ID: {user_item.get('id')})."
+                        logger.warning(error_msg)
+                        return {
+                            "status": "error",
+                            "message": error_msg,
+                            "details": {"existing_user_id": user_item.get('id'), "username": args.username}
+                        }
+            else:
+                logger.warning(f"Pre-check for user '{args.username}': Expected a list of users in 'data', but got {type(users_list)}. Proceeding with creation attempt.")
+        
+        elif isinstance(existing_users_response, dict) and "message" in existing_users_response: # Error response from call_api
+            logger.warning(f"Pre-check for user '{args.username}' failed. API call to list users returned status {existing_users_response.get('status')}: {existing_users_response.get('message')}. Proceeding with creation attempt.")
+        
+        else: # Unexpected response structure from call_api
+             logger.warning(f"Pre-check for user '{args.username}': Unexpected response from call_api when listing users: {str(existing_users_response)[:200]}. Proceeding with creation attempt.")
+
+    except Exception as e_check:
+        logger.warning(f"Exception during pre-check for existing user '{args.username}': {str(e_check)[:200]}. Proceeding with creation attempt.")
+    # End of Pre-check
+
     api_path = "/api/v1/users"
 
     try:
-        api_response = call_api(action="post", path=api_path, value=payload)
+        api_response = await call_api(action="post", path=api_path, value=payload)
 
         # Check if the API call itself was successful (status 2xx)
-        if isinstance(api_response, dict) and api_response.get("status", 0) >= 200 and api_response.get("status", 0) < 300:
+        response_status_from_wrapper = api_response.get("status")
+        if isinstance(api_response, dict) and \
+           isinstance(response_status_from_wrapper, int) and \
+           response_status_from_wrapper >= 200 and \
+           response_status_from_wrapper < 300:
             # Extract the actual user data from the 'data' field of the API response
             user_data = api_response.get("data")
 
@@ -605,7 +885,7 @@ def create_user_tool(args: CreateUserArgs) -> Dict[str, Any]:
         return {"status": "error", "message": f"Exception during user creation: {error_message}", "details": str(e)}
 
 
-def create_device_posture_tool(args: CreateDevicePostureArgs) -> Dict[str, Any]:
+async def create_device_posture_tool(args: CreateDevicePostureArgs) -> Dict[str, Any]:
     """
     Creates a new Device Posture policy.
     Corresponds to POST /api/v1/device-postures.
@@ -613,28 +893,67 @@ def create_device_posture_tool(args: CreateDevicePostureArgs) -> Dict[str, Any]:
     """
     logger.info(f"Attempting to create device posture policy '{args.name}'.")
 
+    # Ensure at least one OS check is defined, otherwise default to a basic Windows check.
+    if (args.windows is None and
+        args.macos is None and
+        args.linux is None and
+        args.android is None and
+        args.ios is None):
+        logger.info(f"No specific OS checks provided for device posture policy '{args.name}'. Adding a default Windows check (allowed=True).")
+        args.windows = WindowsRequestModel(allowed=True)
+
     payload = args.model_dump(by_alias=True, exclude_none=True)
     api_path = "/api/v1/device-postures"
 
     try:
-        response_data = call_api(action="post", path=api_path, value=payload)
-        
-        created_id = response_data.get("id")
-        created_name = response_data.get("name") 
+        api_response_wrapper = await call_api(action="post", path=api_path, value=payload)
 
-        if created_id and created_name:
-            logger.info(f"Successfully created device posture policy '{created_name}' (ID: {created_id}). API Response: {response_data}")
-            CURRENT_SELECTED_OBJECT.select(
-                object_type="deviceposture", 
-                object_id=created_id,
-                object_name=created_name,
-                details=response_data 
-            )
-            logger.info(f"Newly created device posture policy '{created_name}' (ID: {created_id}) has been selected.")
-            return response_data 
+        response_status_from_wrapper = api_response_wrapper.get("status")
+        if isinstance(api_response_wrapper, dict) and \
+           isinstance(response_status_from_wrapper, int) and \
+           response_status_from_wrapper >= 200 and \
+           response_status_from_wrapper < 300:
+
+            actual_policy_data = api_response_wrapper.get("data")
+
+            if isinstance(actual_policy_data, dict):
+                created_id = actual_policy_data.get("id")
+                created_name = actual_policy_data.get("name")
+
+                if created_id and created_name:
+                    logger.info(f"Successfully created device posture policy '{created_name}' (ID: {created_id}). Policy Data: {actual_policy_data}")
+                    CURRENT_SELECTED_OBJECT.select(
+                        object_type="deviceposture",
+                        object_id=created_id,
+                        object_name=created_name,
+                        details=actual_policy_data
+                    )
+                    logger.info(f"Newly created device posture policy '{created_name}' (ID: {created_id}) has been selected.")
+                    return actual_policy_data
+                else:
+                    logger.warning(f"Device posture policy '{args.name}' creation API call successful (status {api_response_wrapper.get('status')}), but 'id' or 'name' not found in the 'data' payload. Actual data: {actual_policy_data}. Full API Response from call_api: {api_response_wrapper}")
+                    return {
+                        "status": "warning",
+                        "message": "Device posture policy created (API success) but ID or name not found in its data payload.",
+                        "details": api_response_wrapper
+                    }
+            else:
+                logger.warning(f"Device posture policy '{args.name}' creation API call successful (status {api_response_wrapper.get('status')}), but the 'data' field (actual policy data) is not a dictionary. Full API Response from call_api: {api_response_wrapper}")
+                return {
+                    "status": "warning",
+                    "message": "Device posture policy created (API success) but API response data format was unexpected.",
+                    "details": api_response_wrapper
+                }
         else:
-            logger.warning(f"Device posture policy '{args.name}' creation API call successful, but 'id' or 'name' not found in response. Cannot select. Response: {response_data}")
-            return {"status": "warning", "message": "Device posture policy created but ID or name not found in response.", "data": response_data}
+            logger.error(f"Device posture policy for '{args.name}' creation API call failed or returned unexpected structure. API Response from call_api: {api_response_wrapper}")
+            if isinstance(api_response_wrapper, dict) and "message" in api_response_wrapper:
+                return api_response_wrapper
+            else:
+                return {
+                    "status": "error",
+                    "message": "Device posture policy creation API call failed with an unexpected response structure.",
+                    "details": api_response_wrapper
+                }
 
     except Exception as e:
         logger.error(f"Exception during device posture policy creation for '{args.name}': {e}. Payload: {payload}", exc_info=True)
@@ -647,7 +966,7 @@ def create_device_posture_tool(args: CreateDevicePostureArgs) -> Dict[str, Any]:
         return {"status": "error", "message": f"Exception during device posture policy creation: {error_message}", "details": str(e)}
 
 
-def create_location_context_tool(args: CreateLocationContextArgs) -> Dict[str, Any]:
+async def create_location_context_tool(args: CreateLocationContextArgs) -> Dict[str, Any]:
     """
     Creates a new Location Context policy.
     Corresponds to POST /api/v1/location-contexts.
@@ -655,28 +974,68 @@ def create_location_context_tool(args: CreateLocationContextArgs) -> Dict[str, A
     """
     logger.info(f"Attempting to create location context policy '{args.name}'.")
 
+    # API requires at least one non-default check (ipCheck or countryCheck).
+    if args.ip_check is None and args.country_check is None:
+        error_msg = "Location context policy must include at least one specific check (IP Check or Country Check)."
+        logger.warning(f"Validation failed for location context policy '{args.name}': {error_msg}")
+        return {
+            "status": "error",
+            "message": error_msg,
+            "details": {"name": args.name, "reason": "Missing ip_check or country_check"}
+        }
+
     payload = args.model_dump(by_alias=True, exclude_none=True)
     api_path = "/api/v1/location-contexts"
 
     try:
-        response_data = call_api(action="post", path=api_path, value=payload)
-        
-        created_id = response_data.get("id")
-        created_name = response_data.get("name") 
+        api_response_wrapper = await call_api(action="post", path=api_path, value=payload)
 
-        if created_id and created_name:
-            logger.info(f"Successfully created location context policy '{created_name}' (ID: {created_id}). API Response: {response_data}")
-            CURRENT_SELECTED_OBJECT.select(
-                object_type="locationcontext", 
-                object_id=created_id,
-                object_name=created_name,
-                details=response_data 
-            )
-            logger.info(f"Newly created location context policy '{created_name}' (ID: {created_id}) has been selected.")
-            return response_data 
+        response_status_from_wrapper = api_response_wrapper.get("status")
+        if isinstance(api_response_wrapper, dict) and \
+           isinstance(response_status_from_wrapper, int) and \
+           response_status_from_wrapper >= 200 and \
+           response_status_from_wrapper < 300:
+
+            actual_policy_data = api_response_wrapper.get("data")
+
+            if isinstance(actual_policy_data, dict):
+                created_id = actual_policy_data.get("id")
+                created_name = actual_policy_data.get("name")
+
+                if created_id and created_name:
+                    logger.info(f"Successfully created location context policy '{created_name}' (ID: {created_id}). Policy Data: {actual_policy_data}")
+                    CURRENT_SELECTED_OBJECT.select(
+                        object_type="locationcontext",
+                        object_id=created_id,
+                        object_name=created_name,
+                        details=actual_policy_data
+                    )
+                    logger.info(f"Newly created location context policy '{created_name}' (ID: {created_id}) has been selected.")
+                    return actual_policy_data
+                else:
+                    logger.warning(f"Location context policy '{args.name}' creation API call successful (status {api_response_wrapper.get('status')}), but 'id' or 'name' not found in the 'data' payload. Actual data: {actual_policy_data}. Full API Response from call_api: {api_response_wrapper}")
+                    return {
+                        "status": "warning",
+                        "message": "Location context policy created (API success) but ID or name not found in its data payload.",
+                        "details": api_response_wrapper
+                    }
+            else:
+                logger.warning(f"Location context policy '{args.name}' creation API call successful (status {api_response_wrapper.get('status')}), but the 'data' field (actual policy data) is not a dictionary. Full API Response from call_api: {api_response_wrapper}")
+                return {
+                    "status": "warning",
+                    "message": "Location context policy created (API success) but API response data format was unexpected.",
+                    "details": api_response_wrapper
+                }
         else:
-            logger.warning(f"Location context policy '{args.name}' creation API call successful, but 'id' or 'name' not found in response. Cannot select. Response: {response_data}")
-            return {"status": "warning", "message": "Location context policy created but ID or name not found in response.", "data": response_data}
+            logger.error(f"Location context policy for '{args.name}' creation API call failed or returned unexpected structure. API Response from call_api: {api_response_wrapper}")
+            if isinstance(api_response_wrapper, dict) and "message" in api_response_wrapper:
+                return api_response_wrapper
+            else:
+                return {
+                    "status": "error",
+                    "message": "Location context policy creation API call failed with an unexpected response structure.",
+                    "details": api_response_wrapper
+                }
 
     except Exception as e:
         logger.error(f"Exception during location context policy creation for '{args.name}': {e}. Payload: {payload}", exc_info=True)
@@ -689,7 +1048,7 @@ def create_location_context_tool(args: CreateLocationContextArgs) -> Dict[str, A
         return {"status": "error", "message": f"Exception during location context policy creation: {error_message}", "details": str(e)}
 
 
-def create_access_group_tool(args: CreateAccessGroupArgs) -> Dict[str, Any]:
+async def create_access_group_tool(args: CreateAccessGroupArgs) -> Dict[str, Any]:
     """
     Creates a new Access Group.
     Corresponds to POST /api/v1/access-groups.
@@ -697,28 +1056,68 @@ def create_access_group_tool(args: CreateAccessGroupArgs) -> Dict[str, Any]:
     """
     logger.info(f"Attempting to create access group '{args.name}'.")
 
+    # API requires a destination to be specified and not empty.
+    if not args.destination: # Checks for None or empty list
+        error_msg = "Access group must include at least one destination."
+        logger.warning(f"Validation failed for access group '{args.name}': {error_msg}")
+        return {
+            "status": "error",
+            "message": error_msg,
+            "details": {"name": args.name, "reason": "Missing or empty destination"}
+        }
+
     payload = args.model_dump(by_alias=True, exclude_none=True)
     api_path = "/api/v1/access-groups"
 
     try:
-        response_data = call_api(action="post", path=api_path, value=payload)
-        
-        created_id = response_data.get("id")
-        created_name = response_data.get("name") 
+        api_response_wrapper = await call_api(action="post", path=api_path, value=payload)
 
-        if created_id and created_name:
-            logger.info(f"Successfully created access group '{created_name}' (ID: {created_id}). API Response: {response_data}")
-            CURRENT_SELECTED_OBJECT.select(
-                object_type="accessgroup", 
-                object_id=created_id,
-                object_name=created_name,
-                details=response_data 
-            )
-            logger.info(f"Newly created access group '{created_name}' (ID: {created_id}) has been selected.")
-            return response_data 
+        response_status_from_wrapper = api_response_wrapper.get("status")
+        if isinstance(api_response_wrapper, dict) and \
+           isinstance(response_status_from_wrapper, int) and \
+           response_status_from_wrapper >= 200 and \
+           response_status_from_wrapper < 300:
+
+            actual_group_data = api_response_wrapper.get("data")
+
+            if isinstance(actual_group_data, dict):
+                created_id = actual_group_data.get("id")
+                created_name = actual_group_data.get("name")
+
+                if created_id and created_name:
+                    logger.info(f"Successfully created access group '{created_name}' (ID: {created_id}). Access Group Data: {actual_group_data}")
+                    CURRENT_SELECTED_OBJECT.select(
+                        object_type="accessgroup",
+                        object_id=created_id,
+                        object_name=created_name,
+                        details=actual_group_data
+                    )
+                    logger.info(f"Newly created access group '{created_name}' (ID: {created_id}) has been selected.")
+                    return actual_group_data
+                else:
+                    logger.warning(f"Access group '{args.name}' creation API call successful (status {api_response_wrapper.get('status')}), but 'id' or 'name' not found in the 'data' payload. Actual data: {actual_group_data}. Full API Response from call_api: {api_response_wrapper}")
+                    return {
+                        "status": "warning",
+                        "message": "Access group created (API success) but ID or name not found in its data payload.",
+                        "details": api_response_wrapper
+                    }
+            else:
+                logger.warning(f"Access group '{args.name}' creation API call successful (status {api_response_wrapper.get('status')}), but the 'data' field (actual access group data) is not a dictionary. Full API Response from call_api: {api_response_wrapper}")
+                return {
+                    "status": "warning",
+                    "message": "Access group created (API success) but API response data format was unexpected.",
+                    "details": api_response_wrapper
+                }
         else:
-            logger.warning(f"Access group '{args.name}' creation API call successful, but 'id' or 'name' not found in response. Cannot select. Response: {response_data}")
-            return {"status": "warning", "message": "Access group created but ID or name not found in response.", "data": response_data}
+            logger.error(f"Access group for '{args.name}' creation API call failed or returned unexpected structure. API Response from call_api: {api_response_wrapper}")
+            if isinstance(api_response_wrapper, dict) and "message" in api_response_wrapper:
+                return api_response_wrapper
+            else:
+                return {
+                    "status": "error",
+                    "message": "Access group creation API call failed with an unexpected response structure.",
+                    "details": api_response_wrapper
+                }
 
     except Exception as e:
         logger.error(f"Exception during access group creation for '{args.name}': {e}. Payload: {payload}", exc_info=True)
@@ -731,7 +1130,7 @@ def create_access_group_tool(args: CreateAccessGroupArgs) -> Dict[str, Any]:
         return {"status": "error", "message": f"Exception during access group creation: {error_message}", "details": str(e)}
 
 
-def create_device_tool(args: CreateDeviceArgs) -> Dict[str, Any]:
+async def create_device_tool(args: CreateDeviceArgs) -> Dict[str, Any]:
     """
     Creates a new Device for a given User.
     Corresponds to POST /api/v1/devices?userId={userId}
@@ -745,24 +1144,62 @@ def create_device_tool(args: CreateDeviceArgs) -> Dict[str, Any]:
     api_path = f"/api/v1/devices?userId={args.user_id}"
 
     try:
-        response_data = call_api(action="post", path=api_path, value=payload_args)
-        
-        created_id = response_data.get("id")
-        created_name = response_data.get("name") 
+        api_response_wrapper = await call_api(action="post", path=api_path, value=payload_args)
 
-        if created_id and created_name:
-            logger.info(f"Successfully created device '{created_name}' (ID: {created_id}). API Response: {response_data}")
-            CURRENT_SELECTED_OBJECT.select(
-                object_type="device", 
-                object_id=created_id,
-                object_name=created_name,
-                details=response_data 
-            )
-            logger.info(f"Newly created device '{created_name}' (ID: {created_id}) has been selected.")
-            return response_data 
+        # Check if the API call itself was successful (e.g., HTTP 2xx status)
+        # call_api returns a dict with "status" (http_status_code) and "data" (actual api json response) on success,
+        # or an error dict with "http_status_code", "message", "details" on http error.
+        
+        response_status_from_wrapper = api_response_wrapper.get("status")
+        if isinstance(api_response_wrapper, dict) and \
+           isinstance(response_status_from_wrapper, int) and \
+           response_status_from_wrapper >= 200 and \
+           response_status_from_wrapper < 300: # Check for HTTP success status
+
+            actual_device_data = api_response_wrapper.get("data") 
+
+            if isinstance(actual_device_data, dict):
+                created_id = actual_device_data.get("id")
+                created_name = actual_device_data.get("name")
+
+                if created_id and created_name:
+                    logger.info(f"Successfully created device '{created_name}' (ID: {created_id}). Device Data: {actual_device_data}")
+                    CURRENT_SELECTED_OBJECT.select(
+                        object_type="device", 
+                        object_id=created_id,
+                        object_name=created_name,
+                        details=actual_device_data 
+                    )
+                    logger.info(f"Newly created device '{created_name}' (ID: {created_id}) has been selected.")
+                    return actual_device_data # Return the actual device data
+                else:
+                    # API call was 2xx, but id/name missing in the actual_device_data
+                    logger.warning(f"Device '{args.name}' creation API call successful (status {api_response_wrapper.get('status')}), but 'id' or 'name' not found in the 'data' payload. Actual data: {actual_device_data}. Full API Response from call_api: {api_response_wrapper}")
+                    return {
+                        "status": "warning", 
+                        "message": "Device created (API success) but ID or name not found in its data payload.", 
+                        "details": api_response_wrapper # Return the whole wrapper from call_api for context
+                    }
+            else:
+                # API call was 2xx, but the 'data' field (actual_device_data) is not a dictionary
+                logger.warning(f"Device '{args.name}' creation API call successful (status {api_response_wrapper.get('status')}), but the 'data' field (actual device data) is not a dictionary. Full API Response from call_api: {api_response_wrapper}")
+                return {
+                    "status": "warning",
+                    "message": "Device created (API success) but API response data format was unexpected.",
+                    "details": api_response_wrapper # Return the whole wrapper from call_api
+                }
         else:
-            logger.warning(f"Device '{args.name}' creation API call successful, but 'id' or 'name' not found in response. Cannot select. Response: {response_data}")
-            return {"status": "warning", "message": "Device created but ID or name not found in response.", "data": response_data}
+            # The API call itself (via call_api) returned an error status or unexpected structure
+            logger.error(f"Device '{args.name}' creation API call failed or returned unexpected structure. API Response from call_api: {api_response_wrapper}")
+            # Return the error structure provided by call_api, or a generic error if it's not the expected error dict
+            if isinstance(api_response_wrapper, dict) and "message" in api_response_wrapper: # Check if it's a structured error from call_api
+                return api_response_wrapper 
+            else: # Fallback for unexpected structures
+                return {
+                    "status": "error",
+                    "message": "Device creation API call failed with an unexpected response structure.",
+                    "details": api_response_wrapper
+                }
 
     except Exception as e:
         logger.error(f"Exception during device creation for '{args.name}': {e}. Payload: {payload_args}", exc_info=True)
@@ -775,7 +1212,7 @@ def create_device_tool(args: CreateDeviceArgs) -> Dict[str, Any]:
         return {"status": "error", "message": f"Exception during device creation: {error_message}", "details": str(e)}
 
 
-def create_dns_record_tool(args: CreateDnsRecordArgs) -> Dict[str, Any]:
+async def create_dns_record_tool(args: CreateDnsRecordArgs) -> Dict[str, Any]:
     """
     Creates a new DNS Record.
     Corresponds to POST /api/v1/dns-records.
@@ -787,24 +1224,54 @@ def create_dns_record_tool(args: CreateDnsRecordArgs) -> Dict[str, Any]:
     api_path = "/api/v1/dns-records"
 
     try:
-        response_data = call_api(action="post", path=api_path, value=payload)
-        
-        created_id = response_data.get("id")
-        created_domain = response_data.get("domain") 
+        api_response_wrapper = await call_api(action="post", path=api_path, value=payload)
 
-        if created_id and created_domain:
-            logger.info(f"Successfully created DNS record for '{created_domain}' (ID: {created_id}). API Response: {response_data}")
-            CURRENT_SELECTED_OBJECT.select(
-                object_type="dnsrecord", 
-                object_id=created_id,
-                object_name=created_domain, # Use domain as name for DNS records
-                details=response_data 
-            )
-            logger.info(f"Newly created DNS record '{created_domain}' (ID: {created_id}) has been selected.")
-            return response_data 
+        response_status_from_wrapper = api_response_wrapper.get("status")
+        if isinstance(api_response_wrapper, dict) and \
+           isinstance(response_status_from_wrapper, int) and \
+           response_status_from_wrapper >= 200 and \
+           response_status_from_wrapper < 300:
+
+            actual_dns_record_data = api_response_wrapper.get("data")
+
+            if isinstance(actual_dns_record_data, dict):
+                created_id = actual_dns_record_data.get("id")
+                created_domain = actual_dns_record_data.get("domain")
+
+                if created_id and created_domain:
+                    logger.info(f"Successfully created DNS record for '{created_domain}' (ID: {created_id}). DNS Record Data: {actual_dns_record_data}")
+                    CURRENT_SELECTED_OBJECT.select(
+                        object_type="dnsrecord",
+                        object_id=created_id,
+                        object_name=created_domain,
+                        details=actual_dns_record_data
+                    )
+                    logger.info(f"Newly created DNS record '{created_domain}' (ID: {created_id}) has been selected.")
+                    return actual_dns_record_data
+                else:
+                    logger.warning(f"DNS record for '{args.domain}' creation API call successful (status {api_response_wrapper.get('status')}), but 'id' or 'domain' not found in the 'data' payload. Actual data: {actual_dns_record_data}. Full API Response from call_api: {api_response_wrapper}")
+                    return {
+                        "status": "warning",
+                        "message": "DNS record created (API success) but ID or domain not found in its data payload.",
+                        "details": api_response_wrapper
+                    }
+            else:
+                logger.warning(f"DNS record for '{args.domain}' creation API call successful (status {api_response_wrapper.get('status')}), but the 'data' field (actual DNS record data) is not a dictionary. Full API Response from call_api: {api_response_wrapper}")
+                return {
+                    "status": "warning",
+                    "message": "DNS record created (API success) but API response data format was unexpected.",
+                    "details": api_response_wrapper
+                }
         else:
-            logger.warning(f"DNS record for '{args.domain}' creation API call successful, but 'id' or 'domain' not found in response. Cannot select. Response: {response_data}")
-            return {"status": "warning", "message": "DNS record created but ID or domain not found in response.", "data": response_data}
+            logger.error(f"DNS record for '{args.domain}' creation API call failed or returned unexpected structure. API Response from call_api: {api_response_wrapper}")
+            if isinstance(api_response_wrapper, dict) and "message" in api_response_wrapper:
+                return api_response_wrapper
+            else:
+                return {
+                    "status": "error",
+                    "message": "DNS record creation API call failed with an unexpected response structure.",
+                    "details": api_response_wrapper
+                }
 
     except Exception as e:
         logger.error(f"Exception during DNS record creation for '{args.domain}': {e}. Payload: {payload}", exc_info=True)
@@ -886,7 +1353,7 @@ async def create_host_connector_tool(args: CreateHostConnectorArgs) -> Dict[str,
                     region_id=None, # Use region from .env as per user instruction
                     openvpn_profile_content=openvpn_profile_content
                 )
-                logger.info(f"Provisioning result for host connector '{args.name}': {provisioning_result}")
+                logger.info(f"Provisioning result for connector '{args.name}': {provisioning_result}")
                 # You might want to include provisioning_result in the return value or log it differently
             else:
                 logger.warning(f"Skipping AWS provisioning for host connector '{created_name}' due to missing OpenVPN profile content.")
@@ -907,18 +1374,57 @@ async def create_host_connector_tool(args: CreateHostConnectorArgs) -> Dict[str,
         return {"status": "error", "message": f"Exception during host connector creation: {error_message}", "details": str(e)}
 
 
-def create_host_tool(args: CreateHostArgs) -> Dict[str, Any]:
+async def create_host_tool(args: CreateHostArgs) -> Dict[str, Any]:
     """
     Creates a new Host.
     Corresponds to POST /api/v1/hosts.
     """
     logger.info(f"Attempting to create host '{args.name}'.")
 
+    # Pre-check for existing host name
+    logger.info(f"Pre-checking if host with name '{args.name}' already exists.")
+    try:
+        list_hosts_path = "/api/v1/hosts"
+        existing_hosts_response = await call_api(action="get", path=list_hosts_path)
+
+        if isinstance(existing_hosts_response, dict) and \
+           existing_hosts_response.get("status") == 200 and \
+           "data" in existing_hosts_response:
+            
+            hosts_list = existing_hosts_response["data"]
+            if isinstance(hosts_list, list):
+                for host_item in hosts_list:
+                    if isinstance(host_item, dict) and host_item.get("name") == args.name:
+                        error_msg = f"A host with the name '{args.name}' already exists (ID: {host_item.get('id')})."
+                        logger.warning(error_msg)
+                        return {
+                            "status": "error",
+                            "message": error_msg,
+                            "details": {"existing_host_id": host_item.get('id'), "name": args.name}
+                        }
+            else:
+                logger.warning(f"Pre-check for host '{args.name}': Expected a list of hosts in 'data', but got {type(hosts_list)}. Proceeding with creation attempt.")
+        
+        elif isinstance(existing_hosts_response, dict) and "message" in existing_hosts_response: # Error response from call_api
+            logger.warning(f"Pre-check for host '{args.name}' failed. API call to list hosts returned status {existing_hosts_response.get('status')}: {existing_hosts_response.get('message')}. Proceeding with creation attempt.")
+        
+        else: # Unexpected response structure from call_api
+             logger.warning(f"Pre-check for host '{args.name}': Unexpected response from call_api when listing hosts: {str(existing_hosts_response)[:200]}. Proceeding with creation attempt.")
+
+    except Exception as e_check:
+        logger.warning(f"Exception during pre-check for existing host '{args.name}': {str(e_check)[:200]}. Proceeding with creation attempt.")
+    # End of Pre-check
+
+    # Default internetAccess if not provided
+    if args.internet_access is None:
+        logger.info(f"internetAccess not provided for host '{args.name}', defaulting to 'SPLIT_TUNNEL_ON'.")
+        args.internet_access = "SPLIT_TUNNEL_ON"
+
     payload = args.model_dump(by_alias=True, exclude_none=True)
     api_path = "/api/v1/hosts"
 
     try:
-        response_data = call_api(action="post", path=api_path, value=payload)
+        response_data = await call_api(action="post", path=api_path, value=payload)
         
         created_id = response_data.get("id")
         created_name = response_data.get("name") 
@@ -948,7 +1454,7 @@ def create_host_tool(args: CreateHostArgs) -> Dict[str, Any]:
         return {"status": "error", "message": f"Exception during host creation: {error_message}", "details": str(e)}
 
 
-def create_user_group_tool(args: CreateUserGroupArgs) -> Dict[str, Any]:
+async def create_user_group_tool(args: CreateUserGroupArgs) -> Dict[str, Any]:
     """
     Creates a new User Group.
     Corresponds to POST /api/v1/user-groups.
@@ -959,37 +1465,59 @@ def create_user_group_tool(args: CreateUserGroupArgs) -> Dict[str, Any]:
     api_path = "/api/v1/user-groups"
 
     try:
-        response_data = call_api(action="post", path=api_path, value=payload) # This is the full API response object
-        
-        # The actual user group data is expected to be in response_data["data"]
-        api_response_status = response_data.get("status") if isinstance(response_data, dict) else "Unknown"
-        actual_group_data = response_data.get("data") if isinstance(response_data, dict) else None
+        response_data_full = await call_api(action="post", path=api_path, value=payload) # This is the full API response object
 
-        if actual_group_data and isinstance(actual_group_data, dict):
-            created_id = actual_group_data.get("id")
-            created_name = actual_group_data.get("name")
+        created_id = None
+        created_name = None
+        actual_group_data = None # Initialize as None
 
-            if created_id and created_name:
-                # Success case: API call was successful and we found id/name in the nested data
-                logger.info(f"Successfully created user group '{created_name}' (ID: {created_id}). API Response data: {actual_group_data}")
-                CURRENT_SELECTED_OBJECT.select(
-                    object_type="usergroup", 
-                    object_id=created_id,
-                    object_name=created_name,
-                    details=actual_group_data 
-                )
-                logger.info(f"Newly created user group '{created_name}' (ID: {created_id}) has been selected.")
-                # Return the actual group data object, not the whole API response
-                return actual_group_data 
-            else:
-                # API call might have been "successful" (e.g., 201 status) but id/name missing in actual_group_data
-                logger.warning(f"User group '{args.name}' creation API call reported status {api_response_status}, but 'id' or 'name' not found in the 'data' field. Actual data: {actual_group_data}. Full API Response: {response_data}")
-                # Return a warning structure, but include the full API response for debugging
-                return {"status": "warning", "message": "User group created (API success) but ID or name not found in its data payload.", "details": response_data}
+        # Prioritize extracting id and name from the nested 'details.data' field, as seen in some successful response logs.
+        if isinstance(response_data_full, dict):
+            details_data = response_data_full.get("details")
+            if isinstance(details_data, dict):
+                nested_data = details_data.get("data")
+                if isinstance(nested_data, dict):
+                    created_id = nested_data.get("id")
+                    created_name = nested_data.get("name")
+                    actual_group_data = nested_data # Use nested data if found there
+
+            # If not found in nested details.data, check if id and name are at the top level or in a top-level 'data' field
+            if not (created_id and created_name):
+                 top_level_data = response_data_full.get("data")
+                 if isinstance(top_level_data, dict):
+                     created_id = top_level_data.get("id")
+                     created_name = top_level_data.get("name")
+                     actual_group_data = top_level_data # Use top level data if found there
+
+                 # If still not found, check the top level directly
+                 if not (created_id and created_name):
+                     created_id = response_data_full.get("id")
+                     created_name = response_data_full.get("name")
+                     if created_id and created_name:
+                         actual_group_data = response_data_full # Use top level data if found there
+
+        api_response_status = response_data_full.get("status") if isinstance(response_data_full, dict) else "Unknown"
+
+        logger.info(f"After parsing API response structure: actual_group_data={actual_group_data}, created_id={created_id}, created_name={created_name}")
+
+        # Check if ID and name were successfully extracted from any location
+        if created_id and created_name:
+            # Success case: API call was successful and we found id/name
+            logger.info(f"Successfully created user group '{created_name}' (ID: {created_id}). Actual group data: {actual_group_data}")
+            CURRENT_SELECTED_OBJECT.select(
+                object_type="usergroup",
+                object_id=created_id,
+                object_name=created_name,
+                details=actual_group_data if isinstance(actual_group_data, dict) else {} # Ensure details is a dict
+            )
+            logger.info(f"Newly created user group '{created_name}' (ID: {created_id}) has been selected.")
+            # Return the actual group data object, not the whole API response
+            return actual_group_data if isinstance(actual_group_data, dict) else {} # Ensure return is a dict
         else:
-            # The structure of response_data was not as expected (e.g., no "data" field or "data" is not a dict)
-            logger.warning(f"User group '{args.name}' creation API call reported status {api_response_status}, but the response format was unexpected (e.g., 'data' field missing or not a dict). Full API Response: {response_data}")
-            return {"status": "warning", "message": "User group created (API success) but API response format was unexpected.", "details": response_data}
+            # ID or name not found after checking all levels
+            logger.warning(f"User group '{args.name}' creation API call reported status {api_response_status}, but 'id' or 'name' not found in response (neither details.data, data, nor top level). Full API Response: {response_data_full}")
+            # Return a warning structure, but include the full API response for debugging
+            return {"status": "warning", "message": "User group created (API success) but ID or name not found in expected response locations.", "details": response_data_full}
 
     except Exception as e:
         logger.error(f"Exception during user group creation for '{args.name}': {e}. Payload: {payload}", exc_info=True)
@@ -1002,7 +1530,7 @@ def create_user_group_tool(args: CreateUserGroupArgs) -> Dict[str, Any]:
         return {"status": "error", "message": f"Exception during user group creation: {error_message}", "details": str(e)}
 
 
-def create_network_connector_tool(args: CreateNetworkConnectorArgs) -> Dict[str, Any]:
+async def create_network_connector_tool(args: CreateNetworkConnectorArgs) -> Dict[str, Any]:
     """
     Creates a new Network Connector within a specified Network.
     Corresponds to POST /api/v1/networks/connectors?networkId={networkId}
@@ -1067,7 +1595,7 @@ def create_network_connector_tool(args: CreateNetworkConnectorArgs) -> Dict[str,
         created_name = None
         actual_connector_data = None # Initialize as None
 
-        # Prioritize extracting id and name from the nested 'details.data' field, as seen in the successful response logs.
+        # Prioritize extracting id and name from the nested 'details.data' field, as seen in some successful response logs.
         if isinstance(response_data_full, dict):
             details_data = response_data_full.get("details")
             if isinstance(details_data, dict):
@@ -1103,7 +1631,7 @@ def create_network_connector_tool(args: CreateNetworkConnectorArgs) -> Dict[str,
                 object_type="networkconnector",
                 object_id=created_id,
                 object_name=created_name,
-                details=actual_connector_data if isinstance(actual_connector_data, dict) else {} # Ensure details is a dict
+                details=actual_connector_data if isinstance(actual_connector_data, dict) else {} # Provide default empty dict if None
             )
             logger.info(f"Newly created network connector '{created_name}' (ID: {created_id}) has been selected.")
 

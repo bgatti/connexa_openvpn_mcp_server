@@ -12,6 +12,10 @@ from .dynamic_connector import get_connector_command_definitions
 # Defer import of update_dynamic_tools to break circular dependency
 # from .dynamic_tool_manager import update_dynamic_tools
 
+def normalize_object_type(object_type: str) -> str:
+    """Normalizes object type string to lowercase and removes hyphens."""
+    return object_type.lower().replace("-", "")
+
 # Configure basic logging
 logger = logging.getLogger(__name__)
 if not logger.hasHandlers(): # Avoid adding multiple handlers if already configured
@@ -24,73 +28,7 @@ if not logger.hasHandlers(): # Avoid adding multiple handlers if already configu
 # Cache for swagger.json content
 _CACHED_SWAGGER_CONTENT: Optional[Dict[str, Any]] = None # Global cache for swagger content
 
-def _get_swagger_content() -> Dict[str, Any]:
-    """Loads and caches swagger.json content. Returns an empty dict on failure."""
-    global _CACHED_SWAGGER_CONTENT
-    if _CACHED_SWAGGER_CONTENT is None:
-        # Initialize to an empty dict; will be populated if loading is successful
-        loaded_data: Dict[str, Any] = {}
-        swagger_path = os.path.join(os.path.dirname(__file__), 'swagger.json')
-        try:
-            with open(swagger_path, 'r') as f:
-                loaded_data = json.load(f) # Populate with loaded data
-        except Exception as e:
-            logger.error(f"Failed to load swagger.json from '{swagger_path}': {e}")
-            # loaded_data remains {} if an error occurs
-        _CACHED_SWAGGER_CONTENT = loaded_data # Assign to the cache
 
-    # By this point, _CACHED_SWAGGER_CONTENT is guaranteed to be a Dict[str, Any]
-    # because it's either populated from the file or set to {}
-    return _CACHED_SWAGGER_CONTENT
-
-def get_schema_for_object_type(object_type: str, request_type: str = "update") -> Optional[Dict[str, Any]]:
-    """
-    Retrieves the JSON schema for a given object type from swagger.json.
-    request_type can be 'update' or 'create'.
-    """
-    swagger = _get_swagger_content() # Use the new cached loader
-    if not swagger or "components" not in swagger or "schemas" not in swagger: # Check if swagger is empty due to load failure
-        logger.error(f"Swagger content malformed, missing components/schemas, or failed to load. Swagger content: {swagger}")
-        return None
-
-    schemas = swagger["components"]["schemas"]
-    schema_name = None
-
-    if object_type == "network":
-        schema_name = "NetworkUpdateRequest" if request_type == "update" else "NetworkCreateRequest"
-    elif object_type == "connector": # Covers NetworkConnector and HostConnector if they share a schema for update
-        schema_name = "NetworkConnectorRequest" # Assuming NetworkConnectorRequest is used for updates of both
-                                                # or HostConnectorRequest if different and needed for host connectors
-    elif object_type == "user":
-        schema_name = "UserUpdateRequest" if request_type == "update" else "UserCreateRequest"
-    elif object_type == "usergroup":
-        # UserGroupRequest is used for both create and update based on schema.json
-        schema_name = "UserGroupRequest"
-    elif object_type == "host":
-        schema_name = "HostUpdateRequest" if request_type == "update" else "HostCreateRequest"
-    elif object_type == "device":
-        # DeviceRequest is used for both create and update based on schema.json
-        schema_name = "DeviceRequest"
-    elif object_type == "dnsrecord": # dns-record in select_object_tool
-        # DnsRecordRequest is used for both create and update
-        schema_name = "DnsRecordRequest"
-    elif object_type == "accessgroup": # access-group in select_object_tool
-        # AccessGroupRequest is used for both create and update
-        schema_name = "AccessGroupRequest"
-    elif object_type == "locationcontext": # location-context in select_object_tool
-        # LocationContextRequest is used for both create and update
-        schema_name = "LocationContextRequest"
-    elif object_type == "deviceposture": # device-posture in select_object_tool
-        # DevicePostureRequest is used for both create and update
-        schema_name = "DevicePostureRequest"
-    # Add other object types here as needed
-
-    if schema_name and schema_name in schemas:
-        logger.info(f"Found schema '{schema_name}' for object_type='{object_type}', request_type='{request_type}'")
-        return schemas[schema_name]
-
-    logger.warning(f"Schema not found in swagger.json for object_type='{object_type}', request_type='{request_type}' (derived schema_name='{schema_name}')")
-    return None
 
 
 class SelectedObject:
@@ -226,7 +164,7 @@ class SelectedObject:
         # For now, this is a simplified map.
         delete_path_map = {
             "network": "/api/v1/networks/{id}",
-            "connector": "/api/v1/networks/connectors/{id}", # Defaulting to network connector path
+        "connector": None, # Path will be determined dynamically
             "user": "/api/v1/users/{id}",
             "usergroup": "/api/v1/user-groups/{id}",
             "host": "/api/v1/hosts/{id}",
@@ -237,12 +175,42 @@ class SelectedObject:
             # Device delete needs userId as a query param: /api/v1/devices/{id}?userId={userId}
             # This simple map won't handle that directly without more logic.
         }
-        if self.object_type in delete_path_map and self.object_type != "device": # Device delete is special
-            commands.append({
+        # Define delete paths more comprehensively
+        # Connector delete path depends on whether it's a network or host connector.
+        # We'll determine this dynamically based on selected object details.
+        delete_path_map = {
+            "network": "/api/v1/networks/{id}",
+            "user": "/api/v1/users/{id}",
+            "usergroup": "/api/v1/user-groups/{id}",
+            "host": "/api/v1/hosts/{id}",
+            "dns-record": "/api/v1/dns-records/{id}",
+            "access-group": "/api/v1/access-groups/{id}",
+            "location-context": "/api/v1/location-contexts/{id}",
+            "device-posture": "/api/v1/device-postures/{id}",
+            # Device delete needs userId as a query param: /api/v1/devices/{id}?userId={userId}
+            # Connector path is determined dynamically below
+        }
+
+        delete_path_template = None
+        if self.object_type == "connector":
+            network_id = self.details.get("networkId") or self.details.get("network_id")
+            host_id = self.details.get("hostId") or self.details.get("host_id")
+            if network_id:
+                delete_path_template = f"/api/v1/networks/{network_id}/connectors/{{id}}"
+            elif host_id:
+                delete_path_template = f"/api/v1/hosts/{host_id}/connectors/{{id}}"
+            else:
+                logger.warning(f"Selected connector '{self.object_name}' (ID: {self.object_id}) details do not contain networkId or hostId. Cannot determine delete path.")
+                # Do not add delete command if path cannot be determined
+        elif self.object_type in delete_path_map:
+             delete_path_template = delete_path_map[self.object_type]
+
+        if delete_path_template:
+             commands.append({
                 "name": "delete",
                 "description": f"Delete the selected {self.object_type} '{self.object_name}'. This action is permanent.",
                 "method": "delete", # HTTP method
-                "path_template": delete_path_map[self.object_type], # Path template for call_api
+                "path_template": delete_path_template, # Dynamically determined path template
                 "requires_args": False # Delete usually doesn't take a request body
             })
         elif self.object_type == "device" and self.details.get("userId"):
@@ -407,73 +375,9 @@ async def act_on_selected_object(command_name: str, command_args: Optional[Dict[
         return f"Error during command execution: {str(e)}"
 
 
-async def complete_update_selected(updated_payload: Dict[str, Any]) -> str:
-    """
-    Completes the update process for the currently selected object
-    using the provided payload.
-
-    Args:
-        updated_payload (Dict[str, Any]): The new data for the object.
-
-    Returns:
-        str: A message indicating success or failure of the update.
-    """
-    if not CURRENT_SELECTED_OBJECT.object_type or not CURRENT_SELECTED_OBJECT.object_id:
-        return "Error: No object selected to update. Use 'select_object_tool' and then 'act_on_selected_object' with command 'update'."
-
-    object_type = CURRENT_SELECTED_OBJECT.object_type
-    object_id = CURRENT_SELECTED_OBJECT.object_id
-    object_name = CURRENT_SELECTED_OBJECT.object_name # For messages
-
-    # Ensure object_type keys here match the lowercase versions used in select_object_tool and get_schema_for_object_type
-    update_path_map = {
-        "network": f"/api/v1/networks/{object_id}",
-        "connector": f"/api/v1/networks/connectors/{object_id}", # Assumes network connector. Host connector might be different.
-                                                                # The API might have a generic /connectors/{id} or need type detection.
-                                                                # For now, this is the most common connector update path.
-        "user": f"/api/v1/users/{object_id}",
-        "usergroup": f"/api/v1/user-groups/{object_id}",
-        "host": f"/api/v1/hosts/{object_id}",
-        "device": f"/api/v1/devices/{object_id}", # PUT /devices/{id} typically takes DeviceRequest.
-                                                 # If userId is needed in query, this function needs adjustment.
-                                                 # Assuming body is sufficient for now.
-        "dnsrecord": f"/api/v1/dns-records/{object_id}", # Matches "dnsrecord" from get_schema_for_object_type
-        "accessgroup": f"/api/v1/access-groups/{object_id}", # Matches "accessgroup"
-        "locationcontext": f"/api/v1/location-contexts/{object_id}", # Matches "locationcontext"
-        "deviceposture": f"/api/v1/device-postures/{object_id}" # Matches "deviceposture"
-    }
-
-    if object_type not in update_path_map:
-        return f"Error: Update functionality not defined for object type '{object_type}'."
-
-    api_path = update_path_map[object_type]
-
-    try:
-        response = await call_api(action="put", path=api_path, value=updated_payload)
-
-        # Check if the status is an integer before comparison
-        status_code = response.get("status")
-        if isinstance(response, dict) and isinstance(status_code, int) and 200 <= status_code < 300:
-            # Successfully updated. Re-select the object to refresh details.
-            new_details = response.get("data", {})
-            # The name might have changed if it was part of the payload
-            new_name = new_details.get("name", object_name) if isinstance(new_details, dict) else object_name
-
-            CURRENT_SELECTED_OBJECT.select(
-                object_type=object_type,
-                object_id=object_id, # ID should not change on update
-                object_name=new_name,
-                details=new_details if isinstance(new_details, dict) else {}
-            )
-            return f"Successfully updated {object_type} '{new_name}'. Details refreshed. API Response: {response}"
-        else:
-            return f"Failed to update {object_type} '{object_name}'. API Response: {response}"
-    except Exception as e:
-        logger.error(f"Error completing update for {object_type} '{object_name}': {e}", exc_info=True)
-        return f"Error during update execution: {str(e)}"
 
 
-async def select_object_tool(object_type: str, name_search: Optional[str] = None, kwargs: Optional[str] = None) -> Dict[str, Any]:
+async def select_object_tool(object_type: str, name_search: Optional[str] = None) -> Dict[str, Any]:
     """
     Tool to select an object (e.g., Network, User, Group) by type and optional name search.
 
@@ -481,7 +385,6 @@ async def select_object_tool(object_type: str, name_search: Optional[str] = None
         object_type (str): The type of object to select (e.g., "network", "user").
         name_search (Optional[str]): A search term to filter objects by name.
                                     If "Default", empty, or multiple matches, selects the default.
-        kwargs (Optional[str]): A JSON string representing additional search parameters (e.g., '{"status": "connected"}').
 
     Returns:
         Tuple[List[str], str]: A list of matching object names and the name of the selected object.
@@ -489,7 +392,7 @@ async def select_object_tool(object_type: str, name_search: Optional[str] = None
     """
     # Read CONNEXA_REGION inside the function so it can be patched for tests
     CONNEXA_REGION = os.getenv("CONNEXA_REGION", "us-west-1")
-    logger.info(f"select_object_tool called with object_type='{object_type}', name_search='{name_search}', kwargs='{kwargs}', using CONNEXA_REGION='{CONNEXA_REGION}'")
+    logger.info(f"select_object_tool called with object_type='{object_type}', name_search='{name_search}', using CONNEXA_REGION='{CONNEXA_REGION}'")
 
     OBJECT_TYPE_CONFIG = {
         "network": {
@@ -523,8 +426,8 @@ async def select_object_tool(object_type: str, name_search: Optional[str] = None
         },
         "device": {
             "path": "/api/v1/devices",
-            "parent_type": "user", # Optional parent for filtering
-            "parent_id_param_name": "userId", # Query parameter
+            "parent_type": None,
+            "parent_id_param_name": None,
             "id_field": "id",
             "name_field": "name"
         },
@@ -535,29 +438,65 @@ async def select_object_tool(object_type: str, name_search: Optional[str] = None
             "id_field": "id",
             "name_field": "name"
         },
-        "dns-record": {
+        "dnsrecord": {
             "path": "/api/v1/dns-records",
             "parent_type": None,
             "parent_id_param_name": None,
             "id_field": "id",
             "name_field": "domain"
+        },
+        "accessgroup": {
+            "path": "/api/v1/access-groups",
+            "parent_type": None,
+            "parent_id_param_name": None,
+            "id_field": "id",
+            "name_field": "name"
+        },
+        "locationcontext": {
+            "path": "/api/v1/location-contexts",
+            "parent_type": None,
+            "parent_id_param_name": None,
+            "id_field": "id",
+            "name_field": "name"
+        },
+        "deviceposture": {
+            "path": "/api/v1/device-postures",
+            "parent_type": None,
+            "parent_id_param_name": None,
+            "id_field": "id",
+            "name_field": "name"
+        },
+        "networkapplication": {
+            "path": "/api/v1/networks/applications",
+            "parent_type": "network",
+            "parent_id_param_name": "networkId", # Query parameter
+            "id_field": "id",
+            "name_field": "name"
+        },
+        "hostapplication": {
+            "path": "/api/v1/hosts/applications",
+            "parent_type": "host",
+            "parent_id_param_name": "hostId", # Query parameter
+            "id_field": "id",
+            "name_field": "name"
         }
-        # Add other types like 'access-group', 'location-context', etc. as needed
     }
 
-    obj_type_lower = object_type.lower()
-    if obj_type_lower not in OBJECT_TYPE_CONFIG:
+    normalized_object_type = normalize_object_type(object_type)
+
+    if normalized_object_type not in OBJECT_TYPE_CONFIG:
         logger.warning(f"Unsupported object type: {object_type}. Clearing selection.")
         CURRENT_SELECTED_OBJECT.clear()
         supported_types = ", ".join(OBJECT_TYPE_CONFIG.keys())
         return {
             "status": "failure",
             "message": f"Unsupported object type: {object_type}. Supported types: {supported_types}.",
-            "object_type": obj_type_lower,
+            "object_type": normalized_object_type,
             "search_matches": []
         }
-
-    config = OBJECT_TYPE_CONFIG[obj_type_lower]
+    
+    # Use the normalized type to get the configuration
+    config = OBJECT_TYPE_CONFIG[normalized_object_type]
     api_path = config["path"]
     api_params: Dict[str, Any] = {} # For query parameters
 
@@ -571,57 +510,45 @@ async def select_object_tool(object_type: str, name_search: Optional[str] = None
     name_field = config["name_field"]
 
     try:
-        filter_kwargs: Dict[str, Any] = {}
-        if kwargs:
-            try:
-                filter_kwargs = json.loads(kwargs)
-                if not isinstance(filter_kwargs, dict):
-                    logger.warning(f"kwargs parameter was not a valid JSON object string: {kwargs}")
-                    filter_kwargs = {}
-            except json.JSONDecodeError:
-                logger.warning(f"Could not decode kwargs JSON string: {kwargs}")
-                filter_kwargs = {}
-
-        # Extract pagination parameters from filter_kwargs and add to api_params
-        page = filter_kwargs.pop("page", 0) # Default to page 0
-        size = filter_kwargs.pop("size", 100) # Default to size 100
-
-        # Add pagination parameters to api_params
-        api_params["page"] = page
-        api_params["size"] = size
-
         # Handle parent object dependency
         if config["parent_type"]:
             parent_type_expected = config["parent_type"]
             parent_id_param_name = config["parent_id_param_name"]
-            if not CURRENT_SELECTED_OBJECT.object_type or \
-               CURRENT_SELECTED_OBJECT.object_type.lower() != parent_type_expected or \
+            
+            # Use normalized types for comparison
+            normalized_selected_type = normalize_object_type(CURRENT_SELECTED_OBJECT.object_type) if CURRENT_SELECTED_OBJECT.object_type else None
+            normalized_parent_type_expected = normalize_object_type(parent_type_expected)
+
+            if not normalized_selected_type or \
+               normalized_selected_type != normalized_parent_type_expected or \
                not CURRENT_SELECTED_OBJECT.object_id:
+                
+                logger.warning(f"Parent object dependency check failed for {object_type}. Expected parent type: '{parent_type_expected}', Selected object type: '{CURRENT_SELECTED_OBJECT.object_type}'. Clearing selection.")
                 CURRENT_SELECTED_OBJECT.clear() # Clear selection if context is invalid for this search
                 return {
                     "status": "failure",
-                    "message": f"Must select a {parent_type_expected} before searching for a {obj_type_lower}.",
-                    "object_type": obj_type_lower,
+                    "message": f"Must select a {parent_type_expected} before searching for a {object_type}.",
+                    "object_type": normalized_object_type,
                     "search_matches": []
                 }
 
             if parent_id_param_name: # Should always be true if parent_type is set
                  api_params[parent_id_param_name] = CURRENT_SELECTED_OBJECT.object_id
-            logger.info(f"Searching for {obj_type_lower} under selected {parent_type_expected} ID: {CURRENT_SELECTED_OBJECT.object_id} using param {parent_id_param_name}")
+            logger.info(f"Searching for {object_type} under selected {parent_type_expected} ID: {CURRENT_SELECTED_OBJECT.object_id} using param {parent_id_param_name}")
 
 
-        logger.info(f"Attempting to fetch {obj_type_lower}(s) using call_api with path='{api_path}' and params='{api_params}'...")
+        logger.info(f"Attempting to fetch {object_type}(s) using call_api with path='{api_path}' and params='{api_params}'...")
         api_response = await call_api(action="get", path=api_path, params=api_params if api_params else None)
-        logger.info(f"call_api response for {obj_type_lower}(s): {api_response}")
+        logger.info(f"call_api response for {object_type}(s): {api_response}")
 
         if not isinstance(api_response, dict) or api_response.get("status") != 200:
             error_detail = f"API call failed or returned non-200 status. Full response: {api_response}"
-            logger.error(f"Error fetching {obj_type_lower}(s): {error_detail}")
+            logger.error(f"Error fetching {object_type}(s): {error_detail}")
             # Do not clear selection here, as the previous selection might still be valid
             return {
                 "status": "error",
-                "message": f"Error fetching {obj_type_lower}(s): {api_response.get('message', 'Unknown API error')}. Details: {error_detail}",
-                "object_type": obj_type_lower,
+                "message": f"Error fetching {object_type}(s): {api_response.get('message', 'Unknown API error')}. Details: {error_detail}",
+                "object_type": normalized_object_type,
                 "search_matches": []
             }
 
@@ -629,34 +556,34 @@ async def select_object_tool(object_type: str, name_search: Optional[str] = None
         items_list: List[Dict[str, Any]] = []
         if isinstance(response_data, dict) and isinstance(response_data.get("content"), list):
             items_list = response_data["content"]
-            logger.info(f"Successfully fetched {len(items_list)} {obj_type_lower}(s) from 'data.content'.")
+            logger.info(f"Successfully fetched {len(items_list)} {object_type}(s) from 'data.content'.")
         elif isinstance(response_data, list): # For APIs that return a list directly in 'data' (e.g. /api/v1/regions)
             items_list = response_data
-            logger.info(f"Successfully fetched {len(items_list)} {obj_type_lower}(s) directly from 'data'.")
+            logger.info(f"Successfully fetched {len(items_list)} {object_type}(s) directly from 'data'.")
         else:
-            error_detail = f"API response data for {obj_type_lower}(s) is not a list or does not contain a 'content' list. Data type: {type(response_data)}. Full response: {api_response}"
-            logger.error(f"Error fetching {obj_type_lower}(s): {error_detail}")
+            error_detail = f"API response data for {object_type}(s) is not a list or does not contain a 'content' list. Data type: {type(response_data)}. Full response: {api_response}"
+            logger.error(f"Error fetching {object_type}(s): {error_detail}")
             return {
                 "status": "error",
-                "message": f"Error fetching {obj_type_lower}(s): Unexpected data format. Details: {error_detail}",
-                "object_type": obj_type_lower,
+                "message": f"Error fetching {object_type}(s): Unexpected data format. Details: {error_detail}",
+                "object_type": normalized_object_type,
                 "search_matches": []
             }
 
         if not items_list:
-            logger.warning(f"No {obj_type_lower}(s) found from API.")
+            logger.warning(f"No {object_type}(s) found from API.")
             # Don't clear selection, just report no items of this type found
             return {
                 "status": "not_found",
-                "message": f"No {obj_type_lower}(s) available to select.",
-                "object_type": obj_type_lower,
-                "search_matches": [f"No {obj_type_lower}(s) found."] # Keep original list-like structure for this key if needed
+                "message": f"No {object_type}(s) available to select.",
+                "object_type": normalized_object_type,
+                "search_matches": [f"No {object_type}(s) found."] # Keep original list-like structure for this key if needed
             }
 
         # Determine default object
-        if obj_type_lower == "network" and config.get("default_criteria_key"):
+        if normalized_object_type == "network" and config.get("default_criteria_key"):
             default_criteria_key = config["default_criteria_key"]
-            logger.info(f"Determining default {obj_type_lower} using criteria key '{default_criteria_key}' and CONNEXA_REGION: {CONNEXA_REGION}")
+            logger.info(f"Determining default {object_type} using criteria key '{default_criteria_key}' and CONNEXA_REGION: {CONNEXA_REGION}")
             default_candidates = [item for item in items_list if item.get(default_criteria_key) == CONNEXA_REGION]
             if default_candidates:
                 default_details = default_candidates[0]
@@ -666,27 +593,16 @@ async def select_object_tool(object_type: str, name_search: Optional[str] = None
              default_details = items_list[0]
 
         if default_details:
-            default_object_name = default_details.get(name_field, f'Unknown Default {obj_type_lower.capitalize()}')
+            default_object_name = default_details.get(name_field, f'Unknown Default {object_type.capitalize()}')
             default_object_id = default_details.get(id_field)
-            logger.info(f"Default {obj_type_lower} determined: {default_object_name} (ID: {default_object_id})")
+            logger.info(f"Default {object_type} determined: {default_object_name} (ID: {default_object_id})")
         else:
-            logger.warning(f"No {obj_type_lower}(s) available to determine a default.")
-            default_object_name = f"No {obj_type_lower.capitalize()}s Found"
+            logger.warning(f"No {object_type}(s) available to determine a default.")
+            default_object_name = f"No {object_type.capitalize()}s Found"
             # default_object_id remains None, default_details remains empty
 
-        filter_kwargs: Dict[str, Any] = {}
-        if kwargs:
-            try:
-                filter_kwargs = json.loads(kwargs)
-                if not isinstance(filter_kwargs, dict):
-                    logger.warning(f"kwargs parameter was not a valid JSON object string: {kwargs}")
-                    filter_kwargs = {}
-            except json.JSONDecodeError:
-                logger.warning(f"Could not decode kwargs JSON string: {kwargs}")
-                filter_kwargs = {}
-
-        logger.info(f"Starting {obj_type_lower} filtering. Total fetched: {len(items_list)}")
-        logger.info(f"Filtering by name_search='{name_search}' and parsed filter_kwargs={filter_kwargs}")
+        logger.info(f"Starting {object_type} filtering. Total fetched: {len(items_list)}")
+        logger.info(f"Filtering by name_search='{name_search}'")
 
         for item in items_list:
             item_name_str = str(item.get(name_field, "")).lower()
@@ -697,36 +613,25 @@ async def select_object_tool(object_type: str, name_search: Optional[str] = None
                     name_match = False
 
             if name_match:
-                match_all_kwargs = True
-                for key, value in filter_kwargs.items():
-                    item_value = item.get(key)
-                    if item_value is None:
-                        match_all_kwargs = False
-                        break
-                    if str(item_value).lower() != str(value).lower():
-                        match_all_kwargs = False
-                        break
+                logger.info(f"{object_type.capitalize()} matched filter criteria: {item.get(name_field, 'Unnamed')}")
+                found_objects.append(item)
 
-                if match_all_kwargs:
-                    logger.info(f"{obj_type_lower.capitalize()} matched filter criteria: {item.get(name_field, 'Unnamed')}")
-                    found_objects.append(item)
+        logger.info(f"Filtering complete. Found {len(found_objects)} {object_type}(s) after filtering.")
 
-        logger.info(f"Filtering complete. Found {len(found_objects)} {obj_type_lower}(s) after filtering.")
-
-        if not name_search and not filter_kwargs:
-            logger.info(f"No name_search or kwargs specified, using all fetched {obj_type_lower}(s) for potential selection.")
+        if not name_search:
+            logger.info(f"No name_search specified, using all fetched {object_type}(s) for potential selection.")
             found_objects = items_list
-            logger.info(f"Found objects updated to all {obj_type_lower}(s). Count: {len(found_objects)}")
+            logger.info(f"Found objects updated to all {object_type}(s). Count: {len(found_objects)}")
 
         found_object_names = [obj.get(name_field, "Unnamed") for obj in found_objects]
-        logger.info(f"Names of found {obj_type_lower}(s): {found_object_names}")
+        logger.info(f"Names of found {object_type}(s): {found_object_names}")
 
         # --- Selection Logic ---
         selected_item_details = None
 
         # Try to find a specific item if name_search is provided and not "default"
         if name_search and name_search.lower() != "default":
-            logger.info(f"Attempting to find specific {obj_type_lower} matching '{name_search}'. Filtered 'found_objects' count: {len(found_objects)}")
+            logger.info(f"Attempting to find specific {object_type} matching '{name_search}'. Filtered 'found_objects' count: {len(found_objects)}")
             # Check for exact match first within 'found_objects' (which are already 'startswith' filtered)
             for item_detail in found_objects:
                 if str(item_detail.get(name_field, "")).lower() == name_search.lower():
@@ -747,12 +652,240 @@ async def select_object_tool(object_type: str, name_search: Optional[str] = None
             if selected_item_id is None: # Should be rare if item is from API
                 logger.error(f"CRITICAL: Matched item '{selected_item_name}' is missing its ID. Details: {json.dumps(selected_item_details, indent=2)}")
                 CURRENT_SELECTED_OBJECT.clear()
-                return {"status": "failure", "message": f"Error: Matched {obj_type_lower} '{selected_item_name}' is missing ID.", "object_type": obj_type_lower, "search_matches": found_object_names}
+                return {"status": "failure", "message": f"Error: Matched {object_type} '{selected_item_name}' is missing ID.", "object_type": normalized_object_type, "search_matches": found_object_names}
 
-            logger.info(f"Selecting specific {obj_type_lower}: Name='{selected_item_name}', ID='{selected_item_id}'.")
+            logger.info(f"Selecting specific {object_type}: Name='{selected_item_name}', ID='{selected_item_id}'.")
+            
+            # Ensure parent IDs are in details for child objects (connectors, applications)
+            if normalized_object_type in ["connector", "networkapplication"]:
+                parent_network_id = api_params.get(config.get("parent_id_param_name"))
+                if parent_network_id:
+                    selected_item_details["networkId"] = parent_network_id
+                    logger.info(f"Added parent networkId '{parent_network_id}' to {normalized_object_type} details for '{selected_item_name}'.")
+            elif normalized_object_type == "hostapplication":
+                 parent_host_id = api_params.get(config.get("parent_id_param_name"))
+                 if parent_host_id:
+                     selected_item_details["hostId"] = parent_host_id
+                     logger.info(f"Added parent hostId '{parent_host_id}' to {normalized_object_type} details for '{selected_item_name}'.")
+
+
+            CURRENT_SELECTED_OBJECT.select(object_type=normalized_object_type, object_id=selected_item_id, object_name=selected_item_name, details=selected_item_details)
+            return {"status": "success", "message": f"Selected Object is {CURRENT_SELECTED_OBJECT.object_name}", "object_type": normalized_object_type, "object_id": selected_item_id, "object_name": selected_item_name, "details": selected_item_details, "search_matches": found_object_names}
+
+        # Case 2: A specific name_search was given, but no item was found (selected_item_details is still None)
+        elif name_search and name_search.lower() != "default":
+            logger.warning(f"Specific search for {object_type} '{name_search}' did not find a match. Clearing selection.")
+            CURRENT_SELECTED_OBJECT.clear()
+            return {
+                "status": "not_found",
+                "message": f"No {object_type} found matching the specific name '{name_search}'. Selection cleared.",
+                "object_type": normalized_object_type,
+                "search_matches": found_object_names # Names that might have 'started with' but weren't exact/unique
+            }
+
+        # Case 3: No name_search, or name_search was "default". Attempt to select the default object.
+        else:
+            logger.info(f"No specific name search or 'default' requested. Attempting to select default {object_type}.")
+            if default_object_id and default_details.get(id_field) is not None:
+                logger.info(f"Selecting default {object_type}: Name='{default_object_name}', ID='{default_object_id}'")
+                
+                # Ensure parent IDs are in details for child objects (connectors, applications) (default selection)
+                if normalized_object_type in ["connector", "networkapplication"]:
+                    parent_network_id = api_params.get(config.get("parent_id_param_name"))
+                    if parent_network_id:
+                        default_details["networkId"] = parent_network_id
+                        logger.info(f"Added parent networkId '{parent_network_id}' to default {normalized_object_type} details for '{default_object_name}'.")
+                elif normalized_object_type == "hostapplication":
+                     parent_host_id = api_params.get(config.get("parent_id_param_name"))
+                     if parent_host_id:
+                         default_details["hostId"] = parent_host_id
+                         logger.info(f"Added parent hostId '{parent_host_id}' to default {normalized_object_type} details for '{default_object_name}'.")
+
+
+                CURRENT_SELECTED_OBJECT.select(object_type=normalized_object_type, object_id=default_object_id, object_name=default_object_name, details=default_details)
+                return {"status": "success", "message": f"Selected Object is {CURRENT_SELECTED_OBJECT.object_name}", "object_type": normalized_object_type, "object_id": default_object_id, "object_name": default_object_name, "details": default_details, "search_matches": found_object_names}
+            else:
+                logger.warning(f"No default {object_type} could be determined or its ID is missing. Clearing selection.")
+                CURRENT_SELECTED_OBJECT.clear()
+                return {
+                    "status": "not_found",
+                    "message": f"No default {object_type} available to select, or default item is invalid. Selection cleared.",
+                    "object_type": normalized_object_type,
+                    "search_matches": found_object_names
+                }
+
+    except Exception as e:
+        logger.error(f"Exception in select_object_tool ({object_type}): {str(e)}", exc_info=True)
+        # Do not clear selection on general error, previous selection might be valid.
+        return {
+            "status": "error",
+            "message": f"Error processing {object_type} selection: {str(e)}",
+            "object_type": normalized_object_type,
+            "search_matches": [] # Or potentially found_objects if available and relevant
+        }
+
+    config = OBJECT_TYPE_CONFIG[normalized_object_type]
+    api_path = config["path"]
+    api_params: Dict[str, Any] = {} # For query parameters
+
+    found_objects: List[Dict[str, Any]] = []
+    selected_object_name_final = "None" # Renamed to avoid conflict
+    default_object_name = "Default"
+    default_object_id = None
+    default_details: Dict[str, Any] = {}
+
+    id_field = config["id_field"]
+    name_field = config["name_field"]
+
+    try:
+        # Handle parent object dependency
+        if config["parent_type"]:
+            parent_type_expected = config["parent_type"]
+            parent_id_param_name = config["parent_id_param_name"]
+            
+            # Use normalized types for comparison
+            normalized_selected_type = normalize_object_type(CURRENT_SELECTED_OBJECT.object_type) if CURRENT_SELECTED_OBJECT.object_type else None
+            normalized_parent_type_expected = normalize_object_type(parent_type_expected)
+
+            if not normalized_selected_type or \
+               normalized_selected_type != normalized_parent_type_expected or \
+               not CURRENT_SELECTED_OBJECT.object_id:
+                
+                logger.warning(f"Parent object dependency check failed for {normalized_object_type}. Expected parent type: '{parent_type_expected}', Selected object type: '{CURRENT_SELECTED_OBJECT.object_type}'. Clearing selection.")
+                CURRENT_SELECTED_OBJECT.clear() # Clear selection if context is invalid for this search
+                return {
+                    "status": "failure",
+                    "message": f"Must select a {parent_type_expected} before searching for a {normalized_object_type}.",
+                    "object_type": normalized_object_type,
+                    "search_matches": []
+                }
+
+            if parent_id_param_name: # Should always be true if parent_type is set
+                 api_params[parent_id_param_name] = CURRENT_SELECTED_OBJECT.object_id
+            logger.info(f"Searching for {normalized_object_type} under selected {parent_type_expected} ID: {CURRENT_SELECTED_OBJECT.object_id} using param {parent_id_param_name}")
+
+
+        logger.info(f"Attempting to fetch {normalized_object_type}(s) using call_api with path='{api_path}' and params='{api_params}'...")
+        api_response = await call_api(action="get", path=api_path, params=api_params if api_params else None)
+        logger.info(f"call_api response for {normalized_object_type}(s): {api_response}")
+
+        if not isinstance(api_response, dict) or api_response.get("status") != 200:
+            error_detail = f"API call failed or returned non-200 status. Full response: {api_response}"
+            logger.error(f"Error fetching {normalized_object_type}(s): {error_detail}")
+            # Do not clear selection here, as the previous selection might still be valid
+            return {
+                "status": "error",
+                "message": f"Error fetching {normalized_object_type}(s): {api_response.get('message', 'Unknown API error')}. Details: {error_detail}",
+                "object_type": normalized_object_type,
+                "search_matches": []
+            }
+
+        response_data = api_response.get("data", {})
+        items_list: List[Dict[str, Any]] = []
+        if isinstance(response_data, dict) and isinstance(response_data.get("content"), list):
+            items_list = response_data["content"]
+            logger.info(f"Successfully fetched {len(items_list)} {normalized_object_type}(s) from 'data.content'.")
+        elif isinstance(response_data, list): # For APIs that return a list directly in 'data' (e.g. /api/v1/regions)
+            items_list = response_data
+            logger.info(f"Successfully fetched {len(items_list)} {normalized_object_type}(s) directly from 'data'.")
+        else:
+            error_detail = f"API response data for {normalized_object_type}(s) is not a list or does not contain a 'content' list. Data type: {type(response_data)}. Full response: {api_response}"
+            logger.error(f"Error fetching {normalized_object_type}(s): {error_detail}")
+            return {
+                "status": "error",
+                "message": f"Error fetching {normalized_object_type}(s): Unexpected data format. Details: {error_detail}",
+                "object_type": normalized_object_type,
+                "search_matches": []
+            }
+
+        if not items_list:
+            logger.warning(f"No {normalized_object_type}(s) found from API.")
+            # Don't clear selection, just report no items of this type found
+            return {
+                "status": "not_found",
+                "message": f"No {normalized_object_type}(s) available to select.",
+                "object_type": normalized_object_type,
+                "search_matches": [f"No {normalized_object_type}(s) found."] # Keep original list-like structure for this key if needed
+            }
+
+        # Determine default object
+        if normalized_object_type == "network" and config.get("default_criteria_key"):
+            default_criteria_key = config["default_criteria_key"]
+            logger.info(f"Determining default {normalized_object_type} using criteria key '{default_criteria_key}' and CONNEXA_REGION: {CONNEXA_REGION}")
+            default_candidates = [item for item in items_list if item.get(default_criteria_key) == CONNEXA_REGION]
+            if default_candidates:
+                default_details = default_candidates[0]
+            elif items_list: # Fallback if no item in default region
+                default_details = items_list[0]
+        elif items_list: # General default: first item
+             default_details = items_list[0]
+
+        if default_details:
+            default_object_name = default_details.get(name_field, f'Unknown Default {normalized_object_type.capitalize()}')
+            default_object_id = default_details.get(id_field)
+            logger.info(f"Default {normalized_object_type} determined: {default_object_name} (ID: {default_object_id})")
+        else:
+            logger.warning(f"No {normalized_object_type}(s) available to determine a default.")
+            default_object_name = f"No {normalized_object_type.capitalize()}s Found"
+            # default_object_id remains None, default_details remains empty
+
+        logger.info(f"Starting {normalized_object_type} filtering. Total fetched: {len(items_list)}")
+        logger.info(f"Filtering by name_search='{name_search}'")
+
+        for item in items_list:
+            item_name_str = str(item.get(name_field, "")).lower()
+            name_match = True
+            if name_search and name_search.lower() != "default":
+                # Filter items by whether their name starts with the search term
+                if not item_name_str.startswith(name_search.lower()):
+                    name_match = False
+
+            if name_match:
+                logger.info(f"{normalized_object_type.capitalize()} matched filter criteria: {item.get(name_field, 'Unnamed')}")
+                found_objects.append(item)
+
+        logger.info(f"Filtering complete. Found {len(found_objects)} {normalized_object_type}(s) after filtering.")
+
+        if not name_search:
+            logger.info(f"No name_search specified, using all fetched {normalized_object_type}(s) for potential selection.")
+            found_objects = items_list
+            logger.info(f"Found objects updated to all {normalized_object_type}(s). Count: {len(found_objects)}")
+
+        found_object_names = [obj.get(name_field, "Unnamed") for obj in found_objects]
+        logger.info(f"Names of found {normalized_object_type}(s): {found_object_names}")
+
+        # --- Selection Logic ---
+        selected_item_details = None
+
+        # Try to find a specific item if name_search is provided and not "default"
+        if name_search and name_search.lower() != "default":
+            logger.info(f"Attempting to find specific {normalized_object_type} matching '{name_search}'. Filtered 'found_objects' count: {len(found_objects)}")
+            # Check for exact match first within 'found_objects' (which are already 'startswith' filtered)
+            for item_detail in found_objects:
+                if str(item_detail.get(name_field, "")).lower() == name_search.lower():
+                    selected_item_details = item_detail
+                    logger.info(f"Exact match found for '{name_search}': {selected_item_details.get(name_field, 'Unnamed')}")
+                    break
+
+            if not selected_item_details and len(found_objects) == 1:
+                # If no exact match, but 'startswith' filter yielded a unique result, use that.
+                selected_item_details = found_objects[0]
+                logger.info(f"Single unique 'startswith' match for '{name_search}': {selected_item_details.get(name_field, 'Unnamed')}")
+
+        # Case 1: A specific item was successfully identified by name_search
+        if selected_item_details:
+            selected_item_id = selected_item_details.get(id_field)
+            selected_item_name = selected_item_details.get(name_field, "Unnamed")
+
+            if selected_item_id is None: # Should be rare if item is from API
+                logger.error(f"CRITICAL: Matched item '{selected_item_name}' is missing its ID. Details: {json.dumps(selected_item_details, indent=2)}")
+                CURRENT_SELECTED_OBJECT.clear()
+                return {"status": "failure", "message": f"Error: Matched {normalized_object_type} '{selected_item_name}' is missing ID.", "object_type": normalized_object_type, "search_matches": found_object_names}
+
+            logger.info(f"Selecting specific {normalized_object_type}: Name='{selected_item_name}', ID='{selected_item_id}'.")
             
             # Ensure networkId is in details for connectors
-            if obj_type_lower == "connector" and selected_item_details is not None:
+            if normalized_object_type == "connector" and selected_item_details is not None:
                 if "networkId" not in selected_item_details and "network_id" not in selected_item_details:
                     # config['parent_id_param_name'] for 'connector' is 'networkId'
                     parent_network_id = api_params.get(config.get("parent_id_param_name")) 
@@ -760,28 +893,28 @@ async def select_object_tool(object_type: str, name_search: Optional[str] = None
                         selected_item_details["networkId"] = parent_network_id
                         logger.info(f"Added parent networkId '{parent_network_id}' to connector details for '{selected_item_name}'.")
 
-            CURRENT_SELECTED_OBJECT.select(object_type=obj_type_lower, object_id=selected_item_id, object_name=selected_item_name, details=selected_item_details)
-            return {"status": "success", "message": f"Selected Object is {CURRENT_SELECTED_OBJECT.object_name}", "object_type": obj_type_lower, "object_id": selected_item_id, "object_name": selected_item_name, "details": selected_item_details, "search_matches": found_object_names}
+            CURRENT_SELECTED_OBJECT.select(object_type=normalized_object_type, object_id=selected_item_id, object_name=selected_item_name, details=selected_item_details)
+            return {"status": "success", "message": f"Selected Object is {CURRENT_SELECTED_OBJECT.object_name}", "object_type": normalized_object_type, "object_id": selected_item_id, "object_name": selected_item_name, "details": selected_item_details, "search_matches": found_object_names}
 
         # Case 2: A specific name_search was given, but no item was found (selected_item_details is still None)
         elif name_search and name_search.lower() != "default":
-            logger.warning(f"Specific search for {obj_type_lower} '{name_search}' did not find a match. Clearing selection.")
+            logger.warning(f"Specific search for {normalized_object_type} '{name_search}' did not find a match. Clearing selection.")
             CURRENT_SELECTED_OBJECT.clear()
             return {
                 "status": "not_found",
-                "message": f"No {obj_type_lower} found matching the specific name '{name_search}'. Selection cleared.",
-                "object_type": obj_type_lower,
+                "message": f"No {normalized_object_type} found matching the specific name '{name_search}'. Selection cleared.",
+                "object_type": normalized_object_type,
                 "search_matches": found_object_names # Names that might have 'started with' but weren't exact/unique
             }
 
         # Case 3: No name_search, or name_search was "default". Attempt to select the default object.
         else:
-            logger.info(f"No specific name search or 'default' requested. Attempting to select default {obj_type_lower}.")
+            logger.info(f"No specific name search or 'default' requested. Attempting to select default {normalized_object_type}.")
             if default_object_id and default_details.get(id_field) is not None:
-                logger.info(f"Selecting default {obj_type_lower}: Name='{default_object_name}', ID='{default_object_id}'")
+                logger.info(f"Selecting default {normalized_object_type}: Name='{default_object_name}', ID='{default_object_id}'")
                 
                 # Ensure networkId is in details for connectors (default selection)
-                if obj_type_lower == "connector" and default_details is not None:
+                if normalized_object_type == "connector" and default_details is not None:
                     if "networkId" not in default_details and "network_id" not in default_details:
                         # config['parent_id_param_name'] for 'connector' is 'networkId'
                         parent_network_id = api_params.get(config.get("parent_id_param_name"))
@@ -789,24 +922,24 @@ async def select_object_tool(object_type: str, name_search: Optional[str] = None
                             default_details["networkId"] = parent_network_id
                             logger.info(f"Added parent networkId '{parent_network_id}' to default connector details for '{default_object_name}'.")
 
-                CURRENT_SELECTED_OBJECT.select(object_type=obj_type_lower, object_id=default_object_id, object_name=default_object_name, details=default_details)
-                return {"status": "success", "message": f"Selected Object is {CURRENT_SELECTED_OBJECT.object_name}", "object_type": obj_type_lower, "object_id": default_object_id, "object_name": default_object_name, "details": default_details, "search_matches": found_object_names}
+                CURRENT_SELECTED_OBJECT.select(object_type=normalized_object_type, object_id=default_object_id, object_name=default_object_name, details=default_details)
+                return {"status": "success", "message": f"Selected Object is {CURRENT_SELECTED_OBJECT.object_name}", "object_type": normalized_object_type, "object_id": default_object_id, "object_name": default_object_name, "details": default_details, "search_matches": found_object_names}
             else:
-                logger.warning(f"No default {obj_type_lower} could be determined or its ID is missing. Clearing selection.")
+                logger.warning(f"No default {normalized_object_type} could be determined or its ID is missing. Clearing selection.")
                 CURRENT_SELECTED_OBJECT.clear()
                 return {
                     "status": "not_found",
-                    "message": f"No default {obj_type_lower} available to select, or default item is invalid. Selection cleared.",
-                    "object_type": obj_type_lower,
+                    "message": f"No default {normalized_object_type} available to select, or default item is invalid. Selection cleared.",
+                    "object_type": normalized_object_type,
                     "search_matches": found_object_names
                 }
 
     except Exception as e:
-        logger.error(f"Exception in select_object_tool ({obj_type_lower}): {str(e)}", exc_info=True)
+        logger.error(f"Exception in select_object_tool ({normalized_object_type}): {str(e)}", exc_info=True)
         # Do not clear selection on general error, previous selection might be valid.
         return {
             "status": "error",
-            "message": f"Error processing {obj_type_lower} selection: {str(e)}",
-            "object_type": obj_type_lower,
+            "message": f"Error processing {normalized_object_type} selection: {str(e)}",
+            "object_type": normalized_object_type,
             "search_matches": [] # Or potentially found_objects if available and relevant
         }

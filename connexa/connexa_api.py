@@ -100,7 +100,7 @@ async def call_api(action: str, path: str, id: Optional[str] = None, value: Opti
         params (Optional[Dict[str, Any]]): Query parameters for the request. Defaults to None.
 
     Returns:
-        Dict[str, Any]: A dictionary containing the API response status and data, or an error message.
+        Dict[str, Any]: A dictionary containing the API response status and data, or a structured error message.
     """
     processed_path = path
 
@@ -114,17 +114,10 @@ async def call_api(action: str, path: str, id: Optional[str] = None, value: Opti
 
     action = action.lower()
     if action in ["post", "put"]:
-        # For POST/PUT, value is typically required, but some POSTs might not have a body (e.g. an action like /start)
-        # The check for `value is None` might be too strict if `params` are used instead of a body for some POSTs.
-        # However, current swagger implies POSTs that create/update resources take a body.
-        # Let's keep it for now, assuming `value` is for body, `params` for query.
-        if value is None and action == "put": # PUT usually always has a body
+        if value is None and action == "put":
              error_message = f"Error: Action '{action}' requires a value/payload, but none was provided."
              logger.error(error_message)
              return {"status": "error", "message": error_message}
-        # For POST, a body is common but not strictly universal (e.g. some action endpoints).
-        # If `value` is None but `params` are provided for a POST, it might be okay.
-        # This logic might need refinement based on specific API endpoint behaviors.
 
     base_url = get_connexa_base_url()
     auth_token = get_connexa_auth_token()
@@ -147,7 +140,6 @@ async def call_api(action: str, path: str, id: Optional[str] = None, value: Opti
         headers["Content-Type"] = "application/json"
 
     full_url = f"{base_url}{processed_path}"
-    response_data: Optional[Any] = None
     
     log_message = f"Attempting API call (from connexa_api.py): Action: {action.upper()}, URL: {full_url}"
     if params:
@@ -172,50 +164,52 @@ async def call_api(action: str, path: str, id: Optional[str] = None, value: Opti
                 logger.error(error_message)
                 return {"status": "error", "message": error_message}
 
-            http_response.raise_for_status()
-            
-            if http_response.content: # Ensure content exists before trying to parse
-                content_type = http_response.headers.get("Content-Type", "")
-                if "application/json" in content_type:
+            # Check status code directly instead of raising for status
+            if 200 <= http_response.status_code < 300:
+                # Success
+                response_data: Optional[Any] = None
+                if http_response.content:
+                    content_type = http_response.headers.get("Content-Type", "")
+                    if "application/json" in content_type:
+                        try:
+                            response_data = http_response.json()
+                        except json.JSONDecodeError:
+                            logger.warning(f"Failed to decode JSON response from {full_url}, though Content-Type was application/json. Raw text: {http_response.text[:500]}...")
+                            response_data = http_response.text
+                    else:
+                        response_data = http_response.text
+                return {"status": http_response.status_code, "data": response_data}
+            else:
+                # Handle API errors (4xx or 5xx)
+                error_detail = http_response.text if http_response else "No response body"
+                
+                error_json_details = None
+                if http_response is not None and "application/json" in http_response.headers.get("Content-Type", ""):
                     try:
-                        response_data = http_response.json()
+                        error_json_details = http_response.json()
                     except json.JSONDecodeError:
-                        logger.warning(f"Failed to decode JSON response from {full_url}, though Content-Type was application/json. Raw text: {http_response.text[:500]}...") # Log snippet
-                        response_data = http_response.text # Fallback to text
-                else: # Handle non-JSON responses (e.g. profile download which is text/plain or ovpn)
-                    response_data = http_response.text
-            else: # No content (e.g. 204 No Content)
-                response_data = None
+                        pass # Keep details as text if not parsable JSON
 
-            return {"status": http_response.status_code, "data": response_data}
+                # Log 4xx errors at WARNING level, 5xx errors at ERROR level
+                log_level = logger.warning if 400 <= http_response.status_code < 500 else logger.error
+                log_level(f"API returned non-2xx status: {http_response.status_code} - Details: {error_detail[:500]}")
 
-        except httpx.HTTPStatusError as e:
-            error_detail = e.response.text if e.response else "No response body"
-            error_message = f"HTTP error occurred: {e} - Status: {e.response.status_code if e.response else 'N/A'} - Details: {error_detail[:500]}" # Log snippet
-            logger.error(error_message)
-            # Try to parse error response if JSON
-            error_json_details = None
-            if e.response is not None and "application/json" in e.response.headers.get("Content-Type", ""):
-                try:
-                    error_json_details = e.response.json()
-                except json.JSONDecodeError:
-                    pass # Keep details as text if not parsable JSON
-            
-            return {
-                "status": "error", 
-                "http_status_code": e.response.status_code if e.response else None, 
-                "message": str(e), # Main error message from exception
-                "details": error_json_details if error_json_details else error_detail, # Parsed JSON or raw text
-                "action": action.upper() # Add the HTTP action here
-            }
+                return {
+                    "status": "error",
+                    "http_status_code": http_response.status_code,
+                    "message": f"API Error: {http_response.status_code} {http_response.reason_phrase}", # More specific message
+                    "details": error_json_details if error_json_details else error_detail,
+                    "action": action.upper()
+                }
+
         except httpx.RequestError as e:
             error_message = f"Request failed: {e}"
             logger.error(error_message)
             return {"status": "error", "message": error_message}
-        except Exception as e: 
+        except Exception as e:
             error_message = f"An unexpected error occurred during API call: {e}"
-        logger.error(error_message)
-        return {"status": "error", "message": error_message}
+            logger.error(error_message)
+            return {"status": "error", "message": error_message}
 
 def call_api_sync(action: str, path: str, id: Optional[str] = None, value: Optional[Dict[str, Any]] = None, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
@@ -305,7 +299,6 @@ def call_api_sync_httpx(action: str, path: str, id: Optional[str] = None, value:
         headers["Content-Type"] = "application/json"
 
     full_url = f"{base_url}{processed_path}"
-    response_data: Optional[Any] = None
     
     log_message = f"Attempting API call (from call_api_sync_httpx): Action: {action.upper()}, URL: {full_url}"
     if params:
@@ -331,41 +324,44 @@ def call_api_sync_httpx(action: str, path: str, id: Optional[str] = None, value:
                 logger.error(error_message)
                 return {"status": "error", "message": error_message}
 
-            http_response.raise_for_status()
-            
-            if http_response.content:
-                content_type = http_response.headers.get("Content-Type", "")
-                if "application/json" in content_type:
-                    try:
-                        response_data = http_response.json()
-                    except json.JSONDecodeError:
-                        logger.warning(f"Failed to decode JSON response from {full_url}, though Content-Type was application/json. Raw text: {http_response.text[:500]}...")
+            # Check status code directly
+            if 200 <= http_response.status_code < 300:
+                 # Success
+                response_data: Optional[Any] = None
+                if http_response.content:
+                    content_type = http_response.headers.get("Content-Type", "")
+                    if "application/json" in content_type:
+                        try:
+                            response_data = http_response.json()
+                        except json.JSONDecodeError:
+                            logger.warning(f"Failed to decode JSON response from {full_url}, though Content-Type was application/json. Raw text: {http_response.text[:500]}...")
+                            response_data = http_response.text
+                    else:
                         response_data = http_response.text
-                else:
-                    response_data = http_response.text
+                return {"status": http_response.status_code, "data": response_data}
             else:
-                response_data = None
+                # Handle API errors (4xx or 5xx)
+                error_detail = http_response.text if http_response else "No response body"
+                
+                error_json_details = None
+                if http_response is not None and "application/json" in http_response.headers.get("Content-Type", ""):
+                    try:
+                        error_json_details = http_response.json()
+                    except json.JSONDecodeError:
+                        pass
+                
+                # Log 4xx errors at WARNING level, 5xx errors at ERROR level
+                log_level = logger.warning if 400 <= http_response.status_code < 500 else logger.error
+                log_level(f"API returned non-2xx status: {http_response.status_code} - Details: {error_detail[:500]}")
 
-            return {"status": http_response.status_code, "data": response_data}
+                return {
+                    "status": "error", 
+                    "http_status_code": http_response.status_code, 
+                    "message": f"API Error: {http_response.status_code} {http_response.reason_phrase}",
+                    "details": error_json_details if error_json_details else error_detail,
+                    "action": action.upper()
+                }
 
-    except httpx.HTTPStatusError as e:
-        error_detail = e.response.text if e.response else "No response body"
-        error_message = f"HTTP error occurred: {e} - Status: {e.response.status_code if e.response else 'N/A'} - Details: {error_detail[:500]}"
-        logger.error(error_message)
-        error_json_details = None
-        if e.response is not None and "application/json" in e.response.headers.get("Content-Type", ""):
-            try:
-                error_json_details = e.response.json()
-            except json.JSONDecodeError:
-                pass
-        
-        return {
-            "status": "error", 
-            "http_status_code": e.response.status_code if e.response else None, 
-            "message": str(e),
-            "details": error_json_details if error_json_details else error_detail,
-            "action": action.upper()
-        }
     except httpx.RequestError as e:
         error_message = f"Request failed: {e}"
         logger.error(error_message)
